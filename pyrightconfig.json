@@ -1,0 +1,6 @@
+{
+  "extraPaths": [
+    "wot-src/sources/res/scripts/client",
+    "wot-src/_stubs"
+  ]
+}

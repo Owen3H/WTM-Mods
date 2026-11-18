@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <id>wtm.viewrangecustomizer</id>
+  <name>View Range Customizer</name>
+  <version>1.0.0</version>
+  <description>Customize the style of WoT view range circles and allows adding additional view ranges.</description>
+</root>

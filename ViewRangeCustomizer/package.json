@@ -1,0 +1,15 @@
+{
+  "name": "view-range-customizer",
+  "private": true,
+  "scripts": {
+    "compile": "bun --env-file ../.env build.ts compile",
+    "copy": "bun --env-file ../.env build.ts copy",
+    "build": "bun --env-file ../.env build.ts build",
+    "test": "bun --env-file ../.env build.ts test",
+    "package": "bun --env-file ../.env build.ts package"
+  },
+  "dependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.6"
+  }
+}
