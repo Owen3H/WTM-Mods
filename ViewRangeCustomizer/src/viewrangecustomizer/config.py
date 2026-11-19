@@ -134,14 +134,15 @@ def _checkbox_control(text, var_name, value):
 
 
 def _slider_control(var_name, value):
+    minimum, maximum, step = 50, 2500, 5
     if templates is not None:
-        return templates.createSlider('Distance (meters)', var_name, value, 10, 1000, 10, format='{{value}} m')
+        return templates.createSlider('Distance (meters)', var_name, value, minimum, maximum, step, format='{{value}} m')
     return {
         'type': 'Slider',
         'text': 'Distance (meters)',
-        'minimum': 10,
-        'maximum': 1000,
-        'snapInterval': 10,
+        'minimum': minimum,
+        'maximum': maximum,
+        'snapInterval': step,
         'value': value,
         'format': '{{value}} m',
         'varName': var_name,

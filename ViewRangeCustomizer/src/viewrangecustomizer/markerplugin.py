@@ -2,7 +2,7 @@
 
 from gui.Scaleform.daapi.view.battle.shared.minimap import common, settings
 from gui.battle_control import matrix_factory
-from gui.mods.viewrangecustomizer import config  # pyright: ignore[reportMissingImports]
+from gui.mods.viewrangecustomizer import config # pyright: ignore[reportMissingImports]
 
 # Keep each original method paired with our wrapper so teardown never
 # overwrites a hook installed by another minimap mod.
@@ -11,7 +11,17 @@ _native_invoke_originals = {}
 
 def _is_random_battle(arena_visitor):
     """Use the game GUI visitor to identify a Random Battle."""
+    if arena_visitor is None:
+        return False
     return arena_visitor.gui.isRandomBattle()
+
+
+def _is_spectator_mode(plugin):
+    """Return True in postmortem, video/free-camera, or respawn-death modes.
+
+    Callers check this before adding the mod's extra circles or replacing the WoT native circles.
+    """
+    return plugin._isInPostmortemMode() or plugin._isInVideoMode() or plugin._isInRespawnDeath()
 
 
 def install_native_circle_visibility_hook(plugin_class):
@@ -193,10 +203,12 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             if entryID is not None:
                 self._setMatrix(entryID, matrix_factory.makeAttachedVehicleMatrix())
         vehicleInfo = self.__getVehicleInfo()
-        if vehicleInfo is None or self.__isObserver(vehicleInfo):
-            # The stock minimap owns observer visibility; don't leave extra entries.
+        spectator_mode = _is_spectator_mode(self)
+        if spectator_mode or vehicleInfo is None or self.__isObserver(vehicleInfo):
+            # The stock minimap owns visibility while spectating or dead.
             for index in range(len(self.__entryIDs)):
                 self.__removeMarker(index)
+            self.remove_replacement_circles()
         else:
             is_alive = self.__isAlive(vehicleInfo)
             for entryID in self.__entryIDs + self.__nativeEntryIDs:
@@ -205,45 +217,43 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
                 if config.SETTINGS['enabled'] and config.SETTINGS[keys[0]]:
                     self.__addMarker(index)
-        refresh_native_circle_visibility()
+        if not spectator_mode:
+            refresh_native_circle_visibility()
 
     def __getVehicleInfo(self):
         """Get the current vehicle data needed for alive/observer checks."""
         get_vehicle_info = getattr(self._arenaDP, 'getVehicleInfo', None)
         if not callable(get_vehicle_info):
-            raise RuntimeError(config.TAG + 'Arena data provider is unavailable')
+            return None
         get_attached_vehicle_id = getattr(self._arenaDP, 'getAttachedVehicleID', None)
         if callable(get_attached_vehicle_id):
             vehicle_id = get_attached_vehicle_id()
             if vehicle_id:
-                try:
-                    return get_vehicle_info(vehicle_id)
-                except TypeError:
-                    pass
+                return get_vehicle_info(vehicle_id)
         return get_vehicle_info()
 
     def __getBoundingBox(self):
         """Return minimap arena bounds used to size each circle entry."""
         get_bounding_box = getattr(self._parentObj, 'getBoundingBox', None)
         if not callable(get_bounding_box):
-            raise RuntimeError(config.TAG + 'Minimap parent is unavailable')
+            return None
         bounds = get_bounding_box()
         if not isinstance(bounds, (tuple, list)) or len(bounds) != 2:
-            raise RuntimeError(config.TAG + 'Minimap parent returned invalid bounds')
+            return None
         return bounds[0], bounds[1]
 
     def __isObserver(self, vehicleInfo):
-        """Check observer status, raising if the game API cannot report it."""
+        """Fail closed if vehicle observer status is unavailable."""
         is_observer = getattr(vehicleInfo, 'isObserver', None)
         if not callable(is_observer):
-            raise RuntimeError(config.TAG + 'Vehicle info cannot report observer state')
+            return True
         return bool(is_observer())
 
     def __isAlive(self, vehicleInfo):
         """Check alive status so circles are inactive while the vehicle is dead."""
         is_alive = getattr(vehicleInfo, 'isAlive', None)
         if not callable(is_alive):
-            raise RuntimeError(config.TAG + 'Vehicle info cannot report alive state')
+            return False
         return bool(is_alive())
 
     def __addMarker(self, index):
@@ -252,6 +262,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         # Avoid duplicates and honor both the global switch and this circle's toggle.
         if (not config.SETTINGS['enabled'] or self.__entryIDs[index] is not None or
                 not config.SETTINGS[enabled_key] or
+                _is_spectator_mode(self) or
                 not _is_random_battle(self._arenaVisitor)):
             return
 
@@ -273,7 +284,11 @@ class DistanceMarkerPlugin(common.SimplePlugin):
 
         self.__entryIDs[index] = entryID
         # The Flash circle widget needs the full minimap dimensions before drawing.
-        bottomLeft, upperRight = self.__getBoundingBox()
+        bounds = self.__getBoundingBox()
+        if bounds is None:
+            self.__removeMarker(index)
+            return
+        bottomLeft, upperRight = bounds
         width = upperRight[0] - bottomLeft[0]
         height = upperRight[1] - bottomLeft[1]
         self._invoke(entryID, settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_INIT_ARENA_SIZE, width, height)
@@ -292,13 +307,26 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         if entryID is None: return
 
         distance_key, color_key, opacity_key = config.CIRCLE_SETTING_KEYS[index][1:]
+        distance = int(config.SETTINGS[distance_key])
+        
+        # Get the bounding box of the minimap. If it is available, use it to clamp the
+        # circle's radius to fit within the minimap (half the shorter dimension).
+        bounds = self.__getBoundingBox()
+        if bounds is not None:
+            bottomLeft, upperRight = bounds
+            width = abs(upperRight[0] - bottomLeft[0])
+            height = abs(upperRight[1] - bottomLeft[1])
+            if width > 0 and height > 0:
+                maximum_radius = max(50, int(min(width, height) / 2.0))
+                distance = min(distance, maximum_radius)
+
         self._invoke(entryID, settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_DEL_DYN_CIRCLE)
         self._invoke(
             entryID,
             settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_ADD_DYN_CIRCLE,
             int(config.SETTINGS[color_key], 16),
             float(config.SETTINGS[opacity_key]) / 100.0,
-            config.SETTINGS[distance_key])
+            distance)
 
     def __addNativeMarker(self, index):
         """Create a separate Flash entry used to render one native circle style."""
@@ -325,7 +353,12 @@ class DistanceMarkerPlugin(common.SimplePlugin):
 
         self.__nativeEntryIDs[index] = entryID
         # Replacement entries need the same arena initialization as extra ones.
-        bottomLeft, upperRight = self.__getBoundingBox()
+        bounds = self.__getBoundingBox()
+        if bounds is None:
+            self._delEntry(entryID)
+            self.__nativeEntryIDs[index] = None
+            return
+        bottomLeft, upperRight = bounds
         width = upperRight[0] - bottomLeft[0]
         height = upperRight[1] - bottomLeft[1]
         self._invoke(entryID, settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_INIT_ARENA_SIZE, width, height)
@@ -356,6 +389,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         if (not config.SETTINGS['enabled'] or
                 not config.SETTINGS['replace_wot_circle_markers'] or
                 not config.SETTINGS[enabled_key] or
+                _is_spectator_mode(self) or
                 not _is_random_battle(self._arenaVisitor)):
             self.remove_replacement_circle(circle_name)
             return False
@@ -439,7 +473,8 @@ class DistanceMarkerPlugin(common.SimplePlugin):
     def __onRespawnBaseMoving(self):
         """Reactivate configured entries after respawn, unless the mod is disabled."""
         random_battle = _is_random_battle(self._arenaVisitor)
-        if (not config.SETTINGS['enabled'] or not random_battle):
+        if (not config.SETTINGS['enabled'] or not random_battle or
+                _is_spectator_mode(self)):
             return
 
         for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):

@@ -1,5 +1,11 @@
 {
-  "exclude": ["wot-src/_stubs"],
+  "include": ["ViewRangeCustomizer/src"],
+  "exclude": [
+    "**/node_modules",
+    "**/dist",
+    "**/__pycache__",
+    "**/.venv"
+  ],
   "extraPaths": [
     "wot-src/sources/res/scripts/client"
   ]
