@@ -197,10 +197,7 @@ def build_settings_template(values=None):
 
     global_settings = [
         _header_control('Global Settings'),
-        _checkbox_control(
-            'Use custom style for native WoT circles',
-            'use_custom_marker_options',
-            values['replace_wot_circle_markers']),
+        _checkbox_control('Use custom style for native WoT circles', 'use_custom_marker_options', values['replace_wot_circle_markers']),
     ]
     custom_circle_sections = []
     circle_headers = (

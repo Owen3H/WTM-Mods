@@ -123,8 +123,7 @@ def _register_settings():
         print(config.TAG + 'Mod Menu cannot register this settings template')
         return
 
-    registered_settings = set_template(
-        config.MOD_ID, settings_template, _on_settings_changed)
+    registered_settings = set_template(config.MOD_ID, settings_template, _on_settings_changed)
     if not isinstance(registered_settings, dict):
         print(config.TAG + 'Mod Menu did not return registered settings')
         return
