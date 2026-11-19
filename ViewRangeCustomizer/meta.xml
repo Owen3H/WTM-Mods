@@ -2,6 +2,6 @@
 <root>
   <id>wtm.viewrangecustomizer</id>
   <name>View Range Customizer</name>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <description>Customize visual WoT minimap view range circles in Random Battles and add up to three additional circles.</description>
 </root>
