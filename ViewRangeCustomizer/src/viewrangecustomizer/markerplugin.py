@@ -9,6 +9,12 @@ from gui.mods.viewrangecustomizer import config  # pyright: ignore[reportMissing
 _native_invoke_originals = {}
 
 
+def _is_random_battle(arena_visitor):
+    """Fail closed unless the game's arena visitor identifies a Random Battle."""
+    is_random_battle = getattr(arena_visitor, 'isRandomBattle', None)
+    return bool(is_random_battle()) if callable(is_random_battle) else False
+
+
 def install_native_circle_visibility_hook(plugin_class):
     """Intercept native circle draw commands so they can be styled safely."""
     if plugin_class in _native_invoke_originals:
@@ -47,7 +53,8 @@ def install_native_circle_visibility_hook(plugin_class):
 
         # If styling is unavailable or disabled, preserve the native draw path.
         if (not config.SETTINGS['enabled'] or not replace_markers or
-                not config.SETTINGS[enabled_key]):
+                not config.SETTINGS[enabled_key] or
+                not _is_random_battle(getattr(self, '_arenaVisitor', None))):
             if replacement_plugin is not None:
                 replacement_plugin.remove_replacement_circle(circle_name)
             return original_invoke(self, entry_id, *signature)
@@ -223,7 +230,8 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         enabled_key = config.CIRCLE_SETTING_KEYS[index][0]
         # Avoid duplicates and honor both the global switch and this circle's toggle.
         if (not config.SETTINGS['enabled'] or self.__entryIDs[index] is not None or
-                not config.SETTINGS[enabled_key]):
+                not config.SETTINGS[enabled_key] or
+                not _is_random_battle(self._arenaVisitor)):
             return
 
         vehicleInfo = self.__getVehicleInfo()
@@ -273,7 +281,8 @@ class DistanceMarkerPlugin(common.SimplePlugin):
 
     def __addNativeMarker(self, index):
         """Create a separate Flash entry used to render one native circle style."""
-        if self.__nativeEntryIDs[index] is not None:
+        if (self.__nativeEntryIDs[index] is not None or
+                not _is_random_battle(self._arenaVisitor)):
             return
 
         vehicleInfo = self.__getVehicleInfo()
@@ -325,7 +334,8 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         enabled_key, color_key, opacity_key = config.NATIVE_CIRCLE_SETTING_KEYS[index]
         if (not config.SETTINGS['enabled'] or
                 not config.SETTINGS['replace_wot_circle_markers'] or
-                not config.SETTINGS[enabled_key]):
+                not config.SETTINGS[enabled_key] or
+                not _is_random_battle(self._arenaVisitor)):
             self.remove_replacement_circle(circle_name)
             return False
 
@@ -391,7 +401,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
 
     def apply_settings(self):
         """Apply current Mod Menu settings to extra and replacement circles."""
-        if not config.SETTINGS['enabled']:
+        if (not config.SETTINGS['enabled'] or not _is_random_battle(self._arenaVisitor)):
             # The game's own visibility settings decide which native circles return.
             for index in range(len(self.__entryIDs)):
                 self.__removeMarker(index)
@@ -416,7 +426,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
 
     def __onRespawnBaseMoving(self):
         """Reactivate configured entries after respawn, unless the mod is disabled."""
-        if not config.SETTINGS['enabled']:
+        if (not config.SETTINGS['enabled'] or not _is_random_battle(self._arenaVisitor)):
             return
 
         for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
