@@ -1,3 +1,4 @@
+from constants import AOI  # pyright: ignore[reportMissingImports]
 from gui.Scaleform.daapi.view.battle.shared.minimap import settings
 
 try:
@@ -134,7 +135,7 @@ def _checkbox_control(text, var_name, value):
 
 
 def _slider_control(var_name, value):
-    minimum, maximum, step = 50, 2500, 5
+    minimum, maximum, step = 50, int(AOI.VEHICLE_CIRCULAR_AOI_RADIUS), 5
     if templates is not None:
         return templates.createSlider('Distance (meters)', var_name, value, minimum, maximum, step, format='{{value}} m')
     return {
@@ -264,7 +265,8 @@ def normalize_settings(values):
             normalized[enabled_key] = enabled
 
         distance = values.get(distance_key)
-        if (isinstance(distance, _NUMBER_TYPES) and not isinstance(distance, bool) and 50 <= distance <= 2500):
+        if (isinstance(distance, _NUMBER_TYPES) and not isinstance(distance, bool) and
+                50 <= distance <= int(AOI.VEHICLE_CIRCULAR_AOI_RADIUS)):
             normalized[distance_key] = int(round(distance))
 
         _color_opacity_settings(values, normalized, color_key, opacity_key)

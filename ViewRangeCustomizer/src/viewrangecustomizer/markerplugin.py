@@ -308,17 +308,6 @@ class DistanceMarkerPlugin(common.SimplePlugin):
 
         distance_key, color_key, opacity_key = config.CIRCLE_SETTING_KEYS[index][1:]
         distance = int(config.SETTINGS[distance_key])
-        
-        # Get the bounding box of the minimap. If it is available, use it to clamp the
-        # circle's radius to fit within the minimap (half the shorter dimension).
-        bounds = self.__getBoundingBox()
-        if bounds is not None:
-            bottomLeft, upperRight = bounds
-            width = abs(upperRight[0] - bottomLeft[0])
-            height = abs(upperRight[1] - bottomLeft[1])
-            if width > 0 and height > 0:
-                maximum_radius = max(50, int(min(width, height) / 2.0))
-                distance = min(distance, maximum_radius)
 
         self._invoke(entryID, settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_DEL_DYN_CIRCLE)
         self._invoke(
