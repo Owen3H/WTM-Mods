@@ -52,7 +52,7 @@ def install_native_circle_visibility_hook(plugin_class):
             return original_invoke(self, entry_id, *signature)
 
         # If styling is unavailable or disabled, preserve the native draw path.
-        random_battle =_is_random_battle(getattr(self, '_arenaVisitor', None))
+        random_battle = _is_random_battle(self._arenaVisitor)
         if (not config.SETTINGS['enabled'] or not replace_markers or
                 not config.SETTINGS[enabled_key] or not random_battle):
             if replacement_plugin is not None:
@@ -417,7 +417,8 @@ class DistanceMarkerPlugin(common.SimplePlugin):
 
     def __onRespawnBaseMoving(self):
         """Reactivate configured entries after respawn, unless the mod is disabled."""
-        if (not config.SETTINGS['enabled'] or not _is_random_battle(self._arenaVisitor)):
+        random_battle = _is_random_battle(self._arenaVisitor)
+        if (not config.SETTINGS['enabled'] or not random_battle):
             return
 
         for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):

@@ -1,4 +1,5 @@
 {
+  "exclude": ["wot-src/_stubs"],
   "extraPaths": [
     "wot-src/sources/res/scripts/client"
   ]
