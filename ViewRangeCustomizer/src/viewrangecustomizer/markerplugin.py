@@ -97,7 +97,7 @@ def get_replacement_plugin(parent):
     """Return this mod's circle plugin when the minimap has created it."""
     get_plugin = getattr(parent, 'getPlugin', None)
     if callable(get_plugin):
-        plugin = get_plugin('distanceMarker')
+        plugin = get_plugin(config.MOD_ID)
         if isinstance(plugin, DistanceMarkerPlugin):
             return plugin
         if plugin is not None:

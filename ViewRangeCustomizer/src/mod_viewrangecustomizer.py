@@ -186,7 +186,7 @@ def _make_setup_plugins(original):
             markerplugin.install_native_circle_visibility_hook(personal_plugin_class)
         else:
             print(config.TAG + 'Built-in minimap circle plugin was not found')
-        plugins['distanceMarker'] = markerplugin.DistanceMarkerPlugin
+        plugins[config.MOD_ID] = markerplugin.DistanceMarkerPlugin
         return plugins
     return setup_plugins
 
