@@ -79,10 +79,12 @@ def _on_settings_reset(linkage, defaults):
 
     config.SETTINGS.clear()
     config.SETTINGS.update(reset_settings)
+
     markerplugin.refresh_native_circle_visibility()
     api = _get_settings_api()
     for plugin in list(config.ACTIVE_PLUGINS):
         plugin.apply_settings()
+
     _restore_template_defaults(api)
 
 def _register_reset_callback(api):
@@ -188,6 +190,7 @@ def _setup_plugins(self, arenaVisitor):
 
 def init():
     global _original_setup_plugins, _setup_hook_installed
+
     _register_settings()
     if not _setup_hook_installed:
         _original_setup_plugins = MinimapComponent._setupPlugins
@@ -196,6 +199,7 @@ def init():
 
 def fini():
     global _setup_hook_installed
+
     _unregister_settings()
     if MinimapComponent._setupPlugins is _setup_plugins:
         MinimapComponent._setupPlugins = _original_setup_plugins

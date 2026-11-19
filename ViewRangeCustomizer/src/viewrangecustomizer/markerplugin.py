@@ -15,7 +15,11 @@ def _is_random_battle(arena_visitor):
 
 
 def install_native_circle_visibility_hook(plugin_class):
-    """Intercept native circle draw commands so they can be styled safely."""
+    """Intercept native circle commands by wrapping the game's _invoke method.
+
+    The wrapper runs this mod's circle logic first, then calls the original
+    game method when the native circle should be shown or changed.
+    """
     if plugin_class in _native_invoke_originals:
         return
 
@@ -92,7 +96,13 @@ def get_replacement_plugin(parent):
 
 
 def restore_native_circle_visibility_hooks():
-    """Restore only methods that still point directly at our wrapper."""
+    """Restore original circle methods only when this mod still owns them.
+
+    Our wrapper replaces the game's _invoke method while the mod is active.
+    "Owning" it means _invoke still points to this exact wrapper. If another
+    minimap mod has replaced _invoke in the meantime, we leave its change alone
+    and only discard our stored wrapper reference.
+    """
     for plugin_class, hooks in _native_invoke_originals.items():
         original_invoke, wrapper = hooks
         if plugin_class._invoke is wrapper:
@@ -188,6 +198,10 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             for index in range(len(self.__entryIDs)):
                 self.__removeMarker(index)
         else:
+            is_alive = self.__isAlive(vehicleInfo)
+            for entryID in self.__entryIDs + self.__nativeEntryIDs:
+                if entryID is not None:
+                    self._setActive(entryID, is_alive)
             for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
                 if config.SETTINGS['enabled'] and config.SETTINGS[keys[0]]:
                     self.__addMarker(index)
@@ -198,6 +212,14 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         get_vehicle_info = getattr(self._arenaDP, 'getVehicleInfo', None)
         if not callable(get_vehicle_info):
             raise RuntimeError(config.TAG + 'Arena data provider is unavailable')
+        get_attached_vehicle_id = getattr(self._arenaDP, 'getAttachedVehicleID', None)
+        if callable(get_attached_vehicle_id):
+            vehicle_id = get_attached_vehicle_id()
+            if vehicle_id:
+                try:
+                    return get_vehicle_info(vehicle_id)
+                except TypeError:
+                    pass
         return get_vehicle_info()
 
     def __getBoundingBox(self):
