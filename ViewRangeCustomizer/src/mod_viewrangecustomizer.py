@@ -179,9 +179,11 @@ def _unregister_settings():
     _settings_api = None
 
 def _make_setup_plugins(original):
+    """Capture the previous hook per wrapper to avoid recursion on reinitialization."""
     def setup_plugins(self, arenaVisitor):
+        """Get the game's minimap plugins and add this mod's plugin to the list."""
         plugins = original(self, arenaVisitor)
-        personal_plugin_class = plugins.get('personal')
+        personal_plugin_class = plugins.get('personal') # Get the built-in personal plugin class controlling minimap circles
         if personal_plugin_class is not None:
             markerplugin.install_native_circle_visibility_hook(personal_plugin_class)
         else:
