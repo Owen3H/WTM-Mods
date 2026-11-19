@@ -30,15 +30,15 @@ DEFAULT_SETTINGS = {
     'show_primary_circle': True, # primary circle
     'distance_meters_1': 400,
     'color_1': 'FF0080', # pink
-    'opacity_1': 50,
+    'opacity_1': 70, # 30% less opaque than native WoT circle
     'show_secondary_circle': False, # secondary circle
     'distance_meters_2': 300,
     'color_2': '8000FF', # purple
-    'opacity_2': 50,
+    'opacity_2': 70, # 30% less opaque than native WoT circle
     'show_alternative_circle': False, # alternative circle
     'distance_meters_3': 100,
     'color_3': '0080FF', # blue
-    'opacity_3': 50,
+    'opacity_3': 70, # 30% less opaque than native WoT circle
     'replace_wot_circle_markers': False,
     'show_draw_range_marker': True,
     'draw_range_color': '%06X' % settings.CIRCLE_STYLE.COLOR.DRAW_RANGE, # yellow

@@ -10,9 +10,8 @@ _native_invoke_originals = {}
 
 
 def _is_random_battle(arena_visitor):
-    """Fail closed unless the game's arena visitor identifies a Random Battle."""
-    is_random_battle = getattr(arena_visitor, 'isRandomBattle', None)
-    return bool(is_random_battle()) if callable(is_random_battle) else False
+    """Use the game GUI visitor to identify a Random Battle."""
+    return arena_visitor.gui.isRandomBattle()
 
 
 def install_native_circle_visibility_hook(plugin_class):
