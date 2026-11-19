@@ -193,8 +193,6 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
             if config.SETTINGS[keys[0]]:
                 self.__addMarker(index)
-        for _, circle_name, _, _ in config.NATIVE_REPLACEMENTS:
-            self.update_replacement_circle(circle_name)
 
     def updateControlMode(self, mode, vehicleID):
         """Reattach entries to the controlled vehicle and handle observer switches."""
@@ -450,8 +448,6 @@ class DistanceMarkerPlugin(common.SimplePlugin):
                 self.__addMarker(index)
             else:
                 self.__drawCircle(index)
-        for _, circle_name, _, _ in config.NATIVE_REPLACEMENTS:
-            self.update_replacement_circle(circle_name)
 
     def __onPostMortemSwitched(self, noRespawnPossible, respawnAvailable):
         """Hide all mod entries when the controlled vehicle dies."""
