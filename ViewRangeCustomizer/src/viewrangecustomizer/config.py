@@ -29,7 +29,7 @@ DEFAULT_SETTINGS = {
     'enabled': True,
     'show_primary_circle': True, # primary circle
     'distance_meters_1': 400,
-    'color_1': '0080FF', # blue
+    'color_1': 'FF0080', # pink
     'opacity_1': 50,
     'show_secondary_circle': False, # secondary circle
     'distance_meters_2': 300,
@@ -37,7 +37,7 @@ DEFAULT_SETTINGS = {
     'opacity_2': 50,
     'show_alternative_circle': False, # alternative circle
     'distance_meters_3': 100,
-    'color_3': 'FF0080', # pink
+    'color_3': '0080FF', # blue
     'opacity_3': 50,
     'replace_wot_circle_markers': False,
     'show_draw_range_marker': True,
@@ -232,13 +232,13 @@ def build_settings_template(values=None):
     column1.extend(native_circle_sections)
     column2 = (column2_alignment_spacers + [_create_empty_control(20)] + custom_circle_sections)
 
-    template = {
+    # Return the settings template as a dictionary with two columns for Mod Menu.
+    return {
         'modDisplayName': 'View Range Customizer',
         'enabled': values.get('enabled', True),
         'column1': [_copy_control(control) for control in column1],
         'column2': [_copy_control(control) for control in column2],
     }
-    return template
 
 
 SETTINGS_TEMPLATE = build_settings_template()
@@ -248,6 +248,7 @@ def normalize_settings(values):
     normalized = dict(DEFAULT_SETTINGS)
     normalized.update(SETTINGS)
 
+    # Normalize the settings from Mod Menu values, retaining enabled state and custom marker options.
     enabled = values.get('enabled')
     if isinstance(enabled, bool):
         normalized['enabled'] = enabled
@@ -262,9 +263,7 @@ def normalize_settings(values):
             normalized[enabled_key] = enabled
 
         distance = values.get(distance_key)
-        if (isinstance(distance, _NUMBER_TYPES) and
-                not isinstance(distance, bool) and
-                50 <= distance <= 2500):
+        if (isinstance(distance, _NUMBER_TYPES) and not isinstance(distance, bool) and 50 <= distance <= 2500):
             normalized[distance_key] = int(round(distance))
 
         _color_opacity_settings(values, normalized, color_key, opacity_key)
@@ -273,7 +272,6 @@ def normalize_settings(values):
         enabled = values.get(enabled_key)
         if isinstance(enabled, bool):
             normalized[enabled_key] = enabled
-        _color_opacity_settings(
-            values, normalized, color_key, opacity_key)
+        _color_opacity_settings(values, normalized, color_key, opacity_key)
 
     return normalized

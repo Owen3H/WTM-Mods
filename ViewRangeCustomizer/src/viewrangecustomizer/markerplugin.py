@@ -52,9 +52,9 @@ def install_native_circle_visibility_hook(plugin_class):
             return original_invoke(self, entry_id, *signature)
 
         # If styling is unavailable or disabled, preserve the native draw path.
+        random_battle =_is_random_battle(getattr(self, '_arenaVisitor', None))
         if (not config.SETTINGS['enabled'] or not replace_markers or
-                not config.SETTINGS[enabled_key] or
-                not _is_random_battle(getattr(self, '_arenaVisitor', None))):
+                not config.SETTINGS[enabled_key] or not random_battle):
             if replacement_plugin is not None:
                 replacement_plugin.remove_replacement_circle(circle_name)
             return original_invoke(self, entry_id, *signature)
@@ -105,19 +105,19 @@ def refresh_native_circle_visibility():
     """Redraw currently visible native circles after a style setting changes."""
     for marker_plugin in list(config.ACTIVE_PLUGINS):
         get_plugin = getattr(marker_plugin._parentObj, 'getPlugin', None)
-        if not callable(get_plugin):
-            continue
+        if not callable(get_plugin): continue
+
         native_plugin = get_plugin('personal')
-        if native_plugin is None:
-            continue
-        visibility_state = getattr(
-            native_plugin, '_PersonalEntriesPlugin__circlesVisibilityState', 0)
+        if native_plugin is None: continue
+
+        visibility_state = getattr(native_plugin, '_PersonalEntriesPlugin__circlesVisibilityState', 0)
+        
         # This bitmask reflects the game's own options; leave hidden circles hidden.
         # Calling the stock remove/add methods reuses the game's current
         # visibility options and supplies the up-to-date radius to our hook.
         for circle_type, _, remove_name, add_name in config.NATIVE_REPLACEMENTS:
-            if not visibility_state & circle_type:
-                continue
+            if not visibility_state & circle_type: continue
+            
             remove_circle = getattr(native_plugin, remove_name, None)
             add_circle = getattr(native_plugin, add_name, None)
             if callable(remove_circle) and callable(add_circle):
@@ -354,11 +354,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             return False
 
         # Preserve the client's radius; only color and opacity come from settings.
-        data = (
-            int(config.SETTINGS[color_key], 16),
-            config.SETTINGS[opacity_key],
-            distance
-        )
+        data = (int(config.SETTINGS[color_key], 16), config.SETTINGS[opacity_key], distance)
 
         self.__addNativeMarker(index)
         entryID = self.__nativeEntryIDs[index]
@@ -375,16 +371,11 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         """Draw the cached color, opacity, and radius for a native replacement."""
         entryID = self.__nativeEntryIDs[index]
         data = self.__nativeCircleData[index]
-        if entryID is None or data is None:
-            return
+        if entryID is None or data is None: return
 
-        self._invoke(entryID, settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_DEL_DYN_CIRCLE)
-        self._invoke(
-            entryID,
-            settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_ADD_DYN_CIRCLE,
-            data[0],
-            float(data[1]) / 100.0,
-            data[2])
+        as3Descr = settings.VIEW_RANGE_CIRCLES_AS3_DESCR
+        self._invoke(entryID, as3Descr.AS_DEL_DYN_CIRCLE)
+        self._invoke(entryID, as3Descr.AS_ADD_DYN_CIRCLE, data[0], float(data[1]) / 100.0, data[2])
 
     def remove_replacement_circle(self, circle_name):
         """Hide one replacement while keeping its reusable Flash entry allocated."""
