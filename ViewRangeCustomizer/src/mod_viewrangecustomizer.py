@@ -5,6 +5,7 @@ _settings_registered = False
 _settings_api = None
 _reset_hooked = {}
 _original_setup_plugins = MinimapComponent._setupPlugins
+_setup_plugins = None
 _setup_hook_installed = False
 
 def _get_settings_api():
@@ -177,22 +178,25 @@ def _unregister_settings():
     _settings_registered = False
     _settings_api = None
 
-def _setup_plugins(self, arenaVisitor):
-    plugins = _original_setup_plugins(self, arenaVisitor)
-    personal_plugin_class = plugins.get('personal')
-    if personal_plugin_class is not None:
-        markerplugin.install_native_circle_visibility_hook(personal_plugin_class)
-    else:
-        print(config.TAG + 'Built-in minimap circle plugin was not found')
-    plugins['distanceMarker'] = markerplugin.DistanceMarkerPlugin
-    return plugins
+def _make_setup_plugins(original):
+    def setup_plugins(self, arenaVisitor):
+        plugins = original(self, arenaVisitor)
+        personal_plugin_class = plugins.get('personal')
+        if personal_plugin_class is not None:
+            markerplugin.install_native_circle_visibility_hook(personal_plugin_class)
+        else:
+            print(config.TAG + 'Built-in minimap circle plugin was not found')
+        plugins['distanceMarker'] = markerplugin.DistanceMarkerPlugin
+        return plugins
+    return setup_plugins
 
 def init():
-    global _original_setup_plugins, _setup_hook_installed
+    global _original_setup_plugins, _setup_plugins, _setup_hook_installed
 
     _register_settings()
     if not _setup_hook_installed:
-        _original_setup_plugins = MinimapComponent._setupPlugins
+        _original_setup_plugins = MinimapComponent._setupPlugins # Store the original setup method before hooking
+        _setup_plugins = _make_setup_plugins(_original_setup_plugins)
         MinimapComponent._setupPlugins = _setup_plugins
         _setup_hook_installed = True
 
@@ -200,7 +204,7 @@ def fini():
     global _setup_hook_installed
 
     _unregister_settings()
-    if MinimapComponent._setupPlugins is _setup_plugins:
-        MinimapComponent._setupPlugins = _original_setup_plugins
-        _setup_hook_installed = False
+    if _setup_hook_installed and MinimapComponent.__dict__.get('_setupPlugins') is _setup_plugins:
+        MinimapComponent._setupPlugins = _original_setup_plugins # Restore the original setup method
+    _setup_hook_installed = False
     markerplugin.restore_native_circle_visibility_hooks()

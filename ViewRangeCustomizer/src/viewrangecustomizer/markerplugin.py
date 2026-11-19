@@ -115,7 +115,7 @@ def restore_native_circle_visibility_hooks():
     """
     for plugin_class, hooks in _native_invoke_originals.items():
         original_invoke, wrapper = hooks
-        if plugin_class._invoke is wrapper:
+        if plugin_class.__dict__.get('_invoke') is wrapper: # Only restore if our wrapper is still in place
             plugin_class._invoke = original_invoke
     _native_invoke_originals.clear()
 
