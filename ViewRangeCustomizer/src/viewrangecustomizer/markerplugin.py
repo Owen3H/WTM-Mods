@@ -1,11 +1,16 @@
+"""Minimap hooks and entries for extra and restyled view-range circles."""
+
 from gui.Scaleform.daapi.view.battle.shared.minimap import common, settings
 from gui.battle_control import matrix_factory
 from gui.mods.viewrangecustomizer import config  # pyright: ignore[reportMissingImports]
 
+# Keep each original method paired with our wrapper so teardown never
+# overwrites a hook installed by another minimap mod.
 _native_invoke_originals = {}
 
 
 def install_native_circle_visibility_hook(plugin_class):
+    """Intercept native circle draw commands so they can be styled safely."""
     if plugin_class in _native_invoke_originals:
         return
 
@@ -15,66 +20,61 @@ def install_native_circle_visibility_hook(plugin_class):
         return
 
     def invoke_with_circle_visibility(self, entry_id, *signature):
+        """Style supported native draw commands and forward all other calls."""
+        # The stock "remove all" action has no per-circle command to inspect.
+        # Clear every replacement first, then let the game clear its own entry.
         if signature and signature[0] == settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_REMOVE_ALL_CIRCLES:
+            replacement_plugin = get_replacement_plugin(self._parentObj)
+            if replacement_plugin is not None:
+                replacement_plugin.remove_replacement_circles()
             return original_invoke(self, entry_id, *signature)
 
         action = config.NATIVE_CIRCLE_ACTIONS.get(signature[0]) if signature else None
         if action is None:
             return original_invoke(self, entry_id, *signature)
 
+        # Action metadata maps the client's AS3 command to a setting and circle.
         circle_name, operation = action
         replacement_plugin = get_replacement_plugin(self._parentObj)
         circle_index = config.NATIVE_CIRCLE_INDEX[circle_name]
         enabled_key = config.NATIVE_CIRCLE_SETTING_KEYS[circle_index][0]
         replace_markers = config.SETTINGS['replace_wot_circle_markers']
-        if operation == 'add':
-            if not replace_markers:
-                if replacement_plugin is not None:
-                    replacement_plugin.remove_replacement_circle(circle_name)
-                return original_invoke(self, entry_id, *signature)
-            if not config.SETTINGS[enabled_key]:
-                if replacement_plugin is not None:
-                    replacement_plugin.remove_replacement_circle(circle_name)
-                return
-            if replacement_plugin is None:
-                print(config.TAG + 'Replacement circle plugin unavailable; keeping WoT marker')
-                return original_invoke(self, entry_id, *signature)
-            distance = (signature[3]
-                        if circle_name in ('max_view_range', 'view_range') and
-                        len(signature) > 3 else None)
-            if not replacement_plugin.update_replacement_circle(
-                    circle_name, distance):
-                return original_invoke(self, entry_id, *signature)
-            return
+        if operation == 'remove':
+            # Native visibility options can change during battle; mirror removals.
+            if replacement_plugin is not None:
+                replacement_plugin.remove_replacement_circle(circle_name)
+            return original_invoke(self, entry_id, *signature)
 
-        if operation == 'update':
-            if not replace_markers:
-                return original_invoke(self, entry_id, *signature)
-            if not config.SETTINGS[enabled_key]:
-                if replacement_plugin is not None:
-                    replacement_plugin.remove_replacement_circle(circle_name)
-                return
-            if replacement_plugin is None:
-                print(config.TAG + 'Replacement circle plugin unavailable; keeping WoT marker')
-                return original_invoke(self, entry_id, *signature)
+        # If styling is unavailable or disabled, preserve the native draw path.
+        if (not config.SETTINGS['enabled'] or not replace_markers or
+                not config.SETTINGS[enabled_key]):
+            if replacement_plugin is not None:
+                replacement_plugin.remove_replacement_circle(circle_name)
+            return original_invoke(self, entry_id, *signature)
+
+        if replacement_plugin is None:
+            print(config.TAG + 'Replacement circle plugin unavailable; keeping WoT marker')
+            return original_invoke(self, entry_id, *signature)
+
+        # Add commands carry their radius in the last argument. Dynamic view
+        # range updates carry it immediately after the command name.
+        if operation == 'add':
+            distance = signature[3] if len(signature) > 3 else None
+        else:
             distance = (signature[1]
                         if circle_name == 'view_range' and len(signature) > 1
                         else None)
-            if not replacement_plugin.update_replacement_circle(
-                    circle_name, distance):
-                return original_invoke(self, entry_id, *signature)
-            return
+        if not replacement_plugin.update_replacement_circle(circle_name, distance):
+            return original_invoke(self, entry_id, *signature)
+        return
 
-        if replacement_plugin is not None and (
-                not replace_markers or not config.SETTINGS[enabled_key]):
-            replacement_plugin.remove_replacement_circle(circle_name)
-        return original_invoke(self, entry_id, *signature)
-
-    _native_invoke_originals[plugin_class] = original_invoke
+    _native_invoke_originals[plugin_class] = (
+        original_invoke, invoke_with_circle_visibility)
     plugin_class._invoke = invoke_with_circle_visibility
 
 
 def get_replacement_plugin(parent):
+    """Return this mod's circle plugin when the minimap has created it."""
     get_plugin = getattr(parent, 'getPlugin', None)
     if callable(get_plugin):
         plugin = get_plugin('distanceMarker')
@@ -86,12 +86,16 @@ def get_replacement_plugin(parent):
 
 
 def restore_native_circle_visibility_hooks():
-    for plugin_class, original_invoke in _native_invoke_originals.items():
-        plugin_class._invoke = original_invoke
+    """Restore only methods that still point directly at our wrapper."""
+    for plugin_class, hooks in _native_invoke_originals.items():
+        original_invoke, wrapper = hooks
+        if plugin_class._invoke is wrapper:
+            plugin_class._invoke = original_invoke
     _native_invoke_originals.clear()
 
 
 def refresh_native_circle_visibility():
+    """Redraw currently visible native circles after a style setting changes."""
     for marker_plugin in list(config.ACTIVE_PLUGINS):
         get_plugin = getattr(marker_plugin._parentObj, 'getPlugin', None)
         if not callable(get_plugin):
@@ -101,6 +105,9 @@ def refresh_native_circle_visibility():
             continue
         visibility_state = getattr(
             native_plugin, '_PersonalEntriesPlugin__circlesVisibilityState', 0)
+        # This bitmask reflects the game's own options; leave hidden circles hidden.
+        # Calling the stock remove/add methods reuses the game's current
+        # visibility options and supplies the up-to-date radius to our hook.
         for circle_type, _, remove_name, add_name in config.NATIVE_REPLACEMENTS:
             if not visibility_state & circle_type:
                 continue
@@ -115,16 +122,21 @@ def refresh_native_circle_visibility():
 
 
 class DistanceMarkerPlugin(common.SimplePlugin):
+    """Owns the mod's extra circles and its styled copies of native circles."""
+
     __slots__ = ('__entryIDs', '__nativeEntryIDs', '__nativeCircleData', '__vehicleStateCtrl')
 
     def __init__(self, parent):
+        """Create empty entry slots aligned with the circle setting tables."""
         super(DistanceMarkerPlugin, self).__init__(parent)
         self.__entryIDs = [None] * len(config.CIRCLE_SETTING_KEYS)
         self.__nativeEntryIDs = [None] * len(config.NATIVE_REPLACEMENTS)
+        # Each native circle stores (RGB color, opacity percent, client radius).
         self.__nativeCircleData = [None] * len(config.NATIVE_REPLACEMENTS) # type: list
         self.__vehicleStateCtrl = None
 
     def start(self):
+        """Track this battle plugin and listen for death/respawn transitions."""
         super(DistanceMarkerPlugin, self).start()
         config.ACTIVE_PLUGINS.append(self)
         self.__vehicleStateCtrl = self.sessionProvider.shared.vehicleState
@@ -133,6 +145,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             self.__vehicleStateCtrl.onRespawnBaseMoving += self.__onRespawnBaseMoving
 
     def stop(self):
+        """Unsubscribe and delete all entries so later battles start cleanly."""
         if self in config.ACTIVE_PLUGINS:
             config.ACTIVE_PLUGINS.remove(self)
         if self.__vehicleStateCtrl is not None:
@@ -149,6 +162,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         super(DistanceMarkerPlugin, self).stop()
 
     def initControlMode(self, mode, available):
+        """Create enabled circles when the minimap enters its initial mode."""
         super(DistanceMarkerPlugin, self).initControlMode(mode, available)
         for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
             if config.SETTINGS[keys[0]]:
@@ -157,18 +171,31 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             self.update_replacement_circle(circle_name)
 
     def updateControlMode(self, mode, vehicleID):
+        """Reattach entries to the controlled vehicle and handle observer switches."""
         super(DistanceMarkerPlugin, self).updateControlMode(mode, vehicleID)
         for entryID in self.__entryIDs + self.__nativeEntryIDs:
             if entryID is not None:
                 self._setMatrix(entryID, matrix_factory.makeAttachedVehicleMatrix())
+        vehicleInfo = self.__getVehicleInfo()
+        if vehicleInfo is None or self.__isObserver(vehicleInfo):
+            # The stock minimap owns observer visibility; don't leave extra entries.
+            for index in range(len(self.__entryIDs)):
+                self.__removeMarker(index)
+        else:
+            for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
+                if config.SETTINGS['enabled'] and config.SETTINGS[keys[0]]:
+                    self.__addMarker(index)
+        refresh_native_circle_visibility()
 
     def __getVehicleInfo(self):
+        """Get the current vehicle data needed for alive/observer checks."""
         get_vehicle_info = getattr(self._arenaDP, 'getVehicleInfo', None)
         if not callable(get_vehicle_info):
             raise RuntimeError(config.TAG + 'Arena data provider is unavailable')
         return get_vehicle_info()
 
     def __getBoundingBox(self):
+        """Return minimap arena bounds used to size each circle entry."""
         get_bounding_box = getattr(self._parentObj, 'getBoundingBox', None)
         if not callable(get_bounding_box):
             raise RuntimeError(config.TAG + 'Minimap parent is unavailable')
@@ -178,23 +205,29 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         return bounds[0], bounds[1]
 
     def __isObserver(self, vehicleInfo):
+        """Check observer status, raising if the game API cannot report it."""
         is_observer = getattr(vehicleInfo, 'isObserver', None)
         if not callable(is_observer):
             raise RuntimeError(config.TAG + 'Vehicle info cannot report observer state')
         return bool(is_observer())
 
     def __isAlive(self, vehicleInfo):
+        """Check alive status so circles are inactive while the vehicle is dead."""
         is_alive = getattr(vehicleInfo, 'isAlive', None)
         if not callable(is_alive):
             raise RuntimeError(config.TAG + 'Vehicle info cannot report alive state')
         return bool(is_alive())
 
     def __addMarker(self, index):
+        """Create and draw one user-configured extra circle."""
         enabled_key = config.CIRCLE_SETTING_KEYS[index][0]
-        if self.__entryIDs[index] is not None or not config.SETTINGS[enabled_key]:
+        # Avoid duplicates and honor both the global switch and this circle's toggle.
+        if (not config.SETTINGS['enabled'] or self.__entryIDs[index] is not None or
+                not config.SETTINGS[enabled_key]):
             return
 
         vehicleInfo = self.__getVehicleInfo()
+        # Observer minimaps use the game's native handling instead.
         if vehicleInfo is None or self.__isObserver(vehicleInfo): return
 
         matrix = matrix_factory.makeAttachedVehicleMatrix()
@@ -210,6 +243,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             return
 
         self.__entryIDs[index] = entryID
+        # The Flash circle widget needs the full minimap dimensions before drawing.
         bottomLeft, upperRight = self.__getBoundingBox()
         width = upperRight[0] - bottomLeft[0]
         height = upperRight[1] - bottomLeft[1]
@@ -217,12 +251,14 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         self.__drawCircle(index)
 
     def __removeMarker(self, index):
+        """Delete one extra circle entry, if it currently exists."""
         entryID = self.__entryIDs[index]
         if entryID is not None:
             self._delEntry(entryID)
             self.__entryIDs[index] = None
 
     def __drawCircle(self, index):
+        """Send the selected extra circle's configured radius and style to Flash."""
         entryID = self.__entryIDs[index]
         if entryID is None: return
 
@@ -236,10 +272,12 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             config.SETTINGS[distance_key])
 
     def __addNativeMarker(self, index):
+        """Create a separate Flash entry used to render one native circle style."""
         if self.__nativeEntryIDs[index] is not None:
             return
 
         vehicleInfo = self.__getVehicleInfo()
+        # If no replacement can be drawn, the hook lets the native command through.
         if vehicleInfo is None or self.__isObserver(vehicleInfo):
             return
 
@@ -256,19 +294,25 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             return
 
         self.__nativeEntryIDs[index] = entryID
+        # Replacement entries need the same arena initialization as extra ones.
         bottomLeft, upperRight = self.__getBoundingBox()
         width = upperRight[0] - bottomLeft[0]
         height = upperRight[1] - bottomLeft[1]
         self._invoke(entryID, settings.VIEW_RANGE_CIRCLES_AS3_DESCR.AS_INIT_ARENA_SIZE, width, height)
 
     def __getNativeViewRangeRadius(self, circle_name):
+        """Read the current mode's native radius when no client command supplied it."""
         get_plugin = getattr(self._parentObj, 'getPlugin', None)
         if not callable(get_plugin):
             return None
         personal_plugin = get_plugin('personal')
-        if circle_name == 'max_view_range':
-            arena_visitor = getattr(personal_plugin, '_arenaVisitor', None)
+        arena_visitor = getattr(personal_plugin, '_arenaVisitor', None)
+        if circle_name == 'draw_range':
+            get_radius = getattr(arena_visitor, 'getVehicleCircularAoiRadius', None)
+        elif circle_name == 'max_view_range':
             get_radius = getattr(arena_visitor, 'getVisibilityMaxRadius', None)
+        elif circle_name == 'min_spotting_range':
+            get_radius = getattr(arena_visitor, 'getVisibilityMinRadius', None)
         else:
             get_radius = getattr(personal_plugin, '_getViewRangeRadius', None)
         if callable(get_radius):
@@ -276,25 +320,30 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         return None
 
     def update_replacement_circle(self, circle_name, distance=None):
+        """Draw a styled native circle without changing its game-provided radius."""
         index = config.NATIVE_CIRCLE_INDEX[circle_name]
         enabled_key, color_key, opacity_key = config.NATIVE_CIRCLE_SETTING_KEYS[index]
-        if (not config.SETTINGS['replace_wot_circle_markers'] or not config.SETTINGS[enabled_key]):
+        if (not config.SETTINGS['enabled'] or
+                not config.SETTINGS['replace_wot_circle_markers'] or
+                not config.SETTINGS[enabled_key]):
+            self.remove_replacement_circle(circle_name)
+            return False
+
+        vehicleInfo = self.__getVehicleInfo()
+        if vehicleInfo is None or self.__isObserver(vehicleInfo):
             self.remove_replacement_circle(circle_name)
             return False
 
         previous_data = self.__nativeCircleData[index]
-        if circle_name in ('max_view_range', 'view_range'):
-            if distance is None:
-                distance = self.__getNativeViewRangeRadius(circle_name)
-            if distance is None and previous_data is not None:
-                distance = previous_data[2]
-            if distance is None:
-                print(config.TAG + 'Current WoT view range is unavailable; keeping its marker')
-                return False
-        else:
-            distance_key = config.NATIVE_CIRCLE_DISTANCE_KEYS[circle_name]
-            distance = config.SETTINGS[distance_key]
+        if distance is None:
+            distance = self.__getNativeViewRangeRadius(circle_name)
+        if distance is None and previous_data is not None:
+            distance = previous_data[2]
+        if distance is None:
+            print(config.TAG + 'Current WoT view range radius is unavailable; keeping its marker')
+            return False
 
+        # Preserve the client's radius; only color and opacity come from settings.
         data = (
             int(config.SETTINGS[color_key], 16),
             config.SETTINGS[opacity_key],
@@ -305,7 +354,6 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         entryID = self.__nativeEntryIDs[index]
         if entryID is None: return False
 
-        vehicleInfo = self.__getVehicleInfo()
         self._setActive(entryID, vehicleInfo is not None and self.__isAlive(vehicleInfo))
         self.__nativeCircleData[index] = data
 
@@ -314,6 +362,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         return True
 
     def __drawNativeCircle(self, index):
+        """Draw the cached color, opacity, and radius for a native replacement."""
         entryID = self.__nativeEntryIDs[index]
         data = self.__nativeCircleData[index]
         if entryID is None or data is None:
@@ -328,6 +377,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             data[2])
 
     def remove_replacement_circle(self, circle_name):
+        """Hide one replacement while keeping its reusable Flash entry allocated."""
         index = config.NATIVE_CIRCLE_INDEX[circle_name]
         entryID = self.__nativeEntryIDs[index]
         if entryID is not None:
@@ -335,10 +385,19 @@ class DistanceMarkerPlugin(common.SimplePlugin):
         self.__nativeCircleData[index] = None
 
     def remove_replacement_circles(self):
+        """Hide all native-circle replacements, for remove-all and disable paths."""
         for _, circle_name, _, _ in config.NATIVE_REPLACEMENTS:
             self.remove_replacement_circle(circle_name)
 
     def apply_settings(self):
+        """Apply current Mod Menu settings to extra and replacement circles."""
+        if not config.SETTINGS['enabled']:
+            # The game's own visibility settings decide which native circles return.
+            for index in range(len(self.__entryIDs)):
+                self.__removeMarker(index)
+            self.remove_replacement_circles()
+            return
+
         for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
             if not config.SETTINGS[keys[0]]:
                 self.__removeMarker(index)
@@ -350,11 +409,16 @@ class DistanceMarkerPlugin(common.SimplePlugin):
             self.update_replacement_circle(circle_name)
 
     def __onPostMortemSwitched(self, noRespawnPossible, respawnAvailable):
+        """Hide all mod entries when the controlled vehicle dies."""
         for entryID in self.__entryIDs + self.__nativeEntryIDs:
             if entryID is not None:
                 self._setActive(entryID, False)
 
     def __onRespawnBaseMoving(self):
+        """Reactivate configured entries after respawn, unless the mod is disabled."""
+        if not config.SETTINGS['enabled']:
+            return
+
         for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
             if not config.SETTINGS[keys[0]]: continue
 

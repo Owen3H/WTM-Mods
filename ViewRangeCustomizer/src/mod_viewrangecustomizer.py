@@ -5,8 +5,10 @@ from gui.Scaleform.daapi.view.battle.shared.minimap.component import MinimapComp
 from gui.mods.viewrangecustomizer import config, markerplugin  # pyright: ignore[reportMissingImports]
 
 _settings_registered = False
-_reset_hooked = set()
+_settings_api = None
+_reset_hooked = {}
 _original_setup_plugins = MinimapComponent._setupPlugins
+_setup_hook_installed = False
 
 def _get_settings_api():
     try:
@@ -32,10 +34,12 @@ def _update_settings_template(api):
         print(config.TAG + 'Mod Menu cannot reload the updated template')
 
 def _on_settings_changed(linkage, values):
-    if linkage != config.MOD_ID or not isinstance(values, dict): return
+    if (not _settings_registered or linkage != config.MOD_ID or
+            not isinstance(values, dict)):
+        return
     previous_settings = dict(config.SETTINGS)
     config.SETTINGS.update(config.normalize_settings(values))
-    native_setting_keys = ['replace_wot_circle_markers']
+    native_setting_keys = ['enabled', 'replace_wot_circle_markers']
     native_setting_keys.extend(key for marker_keys in config.NATIVE_CIRCLE_SETTING_KEYS for key in marker_keys)
     
     if any(previous_settings[key] != config.SETTINGS[key] for key in native_setting_keys):
@@ -64,7 +68,7 @@ def _on_settings_changed(linkage, values):
     _restore_template_defaults(api)
 
 def _on_settings_reset(linkage, defaults):
-    if linkage != config.MOD_ID:
+    if not _settings_registered or linkage != config.MOD_ID:
         return
 
     if isinstance(defaults, dict):
@@ -89,12 +93,37 @@ def _register_reset_callback(api):
         return
     try:
         api.onResetMod += _on_settings_reset
-        _reset_hooked.add(id(api))
+        _reset_hooked[id(api)] = api
     except Exception as error:
         print(config.TAG + 'Could not register reset callback: ' + str(error))
 
+def _unregister_settings():
+    global _settings_registered, _settings_api
+    api = _settings_api
+    if api is None:
+        return
+
+    if hasattr(api, 'onSettingsChanged'):
+        try:
+            api.onSettingsChanged -= _on_settings_changed
+        except Exception as error:
+            print(config.TAG + 'Could not unregister settings callback: ' + str(error))
+    else:
+        print(config.TAG + 'Mod Menu cannot unregister the settings callback')
+
+    for api_id, reset_api in list(_reset_hooked.items()):
+        if api_id != id(api):
+            continue
+        try:
+            reset_api.onResetMod -= _on_settings_reset
+            del _reset_hooked[api_id]
+        except Exception as error:
+            print(config.TAG + 'Could not unregister reset callback: ' + str(error))
+    _settings_registered = False
+    _settings_api = None
+
 def _register_settings():
-    global _settings_registered
+    global _settings_registered, _settings_api
     if _settings_registered:
         return
 
@@ -126,8 +155,6 @@ def _register_settings():
     if isinstance(saved_settings, dict):
         restored_settings = dict(registered_settings)
         restored_settings.update(config.menu_settings(config.normalize_settings(saved_settings)))
-        if 'enabled' in saved_settings:
-            restored_settings['enabled'] = saved_settings['enabled']
         if restored_settings != registered_settings:
             update_settings = getattr(api, 'updateModSettings', None)
             if callable(update_settings):
@@ -145,6 +172,7 @@ def _register_settings():
     _restore_template_defaults(api)
     _register_reset_callback(api)
     _settings_registered = True
+    _settings_api = api
     print(config.TAG + 'Registered settings with Mod Settings menu')
 
 def _setup_plugins(self, arenaVisitor):
@@ -163,11 +191,19 @@ def _setup_plugins(self, arenaVisitor):
 #     SystemMessages.pushMessage(message, type=SM_TYPE.Information)
 
 def init():
+    global _original_setup_plugins, _setup_hook_installed
     _register_settings()
-    MinimapComponent._setupPlugins = _setup_plugins
+    if not _setup_hook_installed:
+        _original_setup_plugins = MinimapComponent._setupPlugins
+        MinimapComponent._setupPlugins = _setup_plugins
+        _setup_hook_installed = True
     # g_playerEvents.onAccountBecomePlayer += _onAccountBecomePlayer
 
 def fini():
+    global _setup_hook_installed
     # g_playerEvents.onAccountBecomePlayer -= _onAccountBecomePlayer
-    MinimapComponent._setupPlugins = _original_setup_plugins
+    _unregister_settings()
+    if MinimapComponent._setupPlugins is _setup_plugins:
+        MinimapComponent._setupPlugins = _original_setup_plugins
+        _setup_hook_installed = False
     markerplugin.restore_native_circle_visibility_hooks()

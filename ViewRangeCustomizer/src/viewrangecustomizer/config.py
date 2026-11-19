@@ -26,6 +26,7 @@ MOD_ID = 'wtm.view_range_customizer'
 # The opacity is calculated as follows: int(round(float(opacity) * 255.0 / 100.0))
 # Eg: 50% would become 128/255, and 100% would become 255/255 in the colour picker.
 DEFAULT_SETTINGS = {
+    'enabled': True,
     'show_primary_circle': True, # primary circle
     'distance_meters_1': 400,
     'color_1': '0080FF', # blue
@@ -40,7 +41,6 @@ DEFAULT_SETTINGS = {
     'opacity_3': 50,
     'replace_wot_circle_markers': False,
     'show_draw_range_marker': True,
-    'draw_range_distance': 565,
     'draw_range_color': '%06X' % settings.CIRCLE_STYLE.COLOR.DRAW_RANGE, # yellow
     'draw_range_opacity': 100,
     'show_max_view_range_marker': True,
@@ -50,7 +50,6 @@ DEFAULT_SETTINGS = {
     'view_range_color': '%06X' % settings.CIRCLE_STYLE.COLOR.VIEW_RANGE, # green
     'view_range_opacity': 100,
     'show_min_spotting_range_marker': True,
-    'min_spotting_range_distance': 50,
     'min_spotting_range_color': '%06X' % settings.CIRCLE_STYLE.COLOR.MIN_SPOTTING_RANGE, # aqua
     'min_spotting_range_opacity': 100,
 }
@@ -94,12 +93,6 @@ NATIVE_CIRCLE_SETTING_KEYS = (
     ('show_view_range_marker', 'view_range_color', 'view_range_opacity'),
     ('show_min_spotting_range_marker', 'min_spotting_range_color', 'min_spotting_range_opacity'),
 )
-NATIVE_CIRCLE_DISTANCE_KEYS = {
-    'draw_range': 'draw_range_distance',
-    'min_spotting_range': 'min_spotting_range_distance',
-}
-
-
 def menu_settings(values):
     result = dict(values)
     result['use_custom_marker_options'] = values['replace_wot_circle_markers']
@@ -109,7 +102,7 @@ def menu_settings(values):
             values[color_key], values[opacity_key])
     for _, color_key, opacity_key in NATIVE_CIRCLE_SETTING_KEYS:
         result[color_key] = color_with_opacity(values[color_key], values[opacity_key])
-    result['enabled'] = True
+    result['enabled'] = values.get('enabled', True)
     return result
 
 
@@ -241,7 +234,7 @@ def build_settings_template(values=None):
 
     template = {
         'modDisplayName': 'View Range Customizer',
-        'enabled': True,
+        'enabled': values.get('enabled', True),
         'column1': [_copy_control(control) for control in column1],
         'column2': [_copy_control(control) for control in column2],
     }
@@ -254,6 +247,10 @@ SETTINGS_TEMPLATE = build_settings_template()
 def normalize_settings(values):
     normalized = dict(DEFAULT_SETTINGS)
     normalized.update(SETTINGS)
+
+    enabled = values.get('enabled')
+    if isinstance(enabled, bool):
+        normalized['enabled'] = enabled
 
     use_custom_marker_options = values.get('use_custom_marker_options')
     if isinstance(use_custom_marker_options, bool):
