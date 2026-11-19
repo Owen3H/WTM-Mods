@@ -98,7 +98,7 @@ def get_replacement_plugin(parent):
     get_plugin = getattr(parent, 'getPlugin', None)
     if callable(get_plugin):
         plugin = get_plugin(config.MOD_ID)
-        if isinstance(plugin, DistanceMarkerPlugin):
+        if isinstance(plugin, CustomCirclesPlugin):
             return plugin
         if plugin is not None:
             print(config.TAG + 'Replacement circle plugin has an unexpected type')
@@ -147,14 +147,14 @@ def refresh_native_circle_visibility():
                 break
 
 
-class DistanceMarkerPlugin(common.SimplePlugin):
+class CustomCirclesPlugin(common.SimplePlugin):
     """Owns the mod's extra circles and its styled copies of native circles."""
 
     __slots__ = ('__entryIDs', '__nativeEntryIDs', '__nativeCircleData', '__vehicleStateCtrl')
 
     def __init__(self, parent):
         """Create empty entry slots aligned with the circle setting tables."""
-        super(DistanceMarkerPlugin, self).__init__(parent)
+        super(CustomCirclesPlugin, self).__init__(parent)
         self.__entryIDs = [None] * len(config.CIRCLE_SETTING_KEYS)
         self.__nativeEntryIDs = [None] * len(config.NATIVE_REPLACEMENTS)
         # Each native circle stores (RGB color, opacity percent, client radius).
@@ -163,7 +163,7 @@ class DistanceMarkerPlugin(common.SimplePlugin):
 
     def start(self):
         """Track this battle plugin and listen for death/respawn transitions."""
-        super(DistanceMarkerPlugin, self).start()
+        super(CustomCirclesPlugin, self).start()
         config.ACTIVE_PLUGINS.append(self)
         self.__vehicleStateCtrl = self.sessionProvider.shared.vehicleState
         if self.__vehicleStateCtrl is not None:
@@ -185,18 +185,18 @@ class DistanceMarkerPlugin(common.SimplePlugin):
                 self._delEntry(entryID)
                 self.__nativeEntryIDs[index] = None
                 self.__nativeCircleData[index] = None
-        super(DistanceMarkerPlugin, self).stop()
+        super(CustomCirclesPlugin, self).stop()
 
     def initControlMode(self, mode, available):
         """Create enabled circles when the minimap enters its initial mode."""
-        super(DistanceMarkerPlugin, self).initControlMode(mode, available)
+        super(CustomCirclesPlugin, self).initControlMode(mode, available)
         for index, keys in enumerate(config.CIRCLE_SETTING_KEYS):
             if config.SETTINGS[keys[0]]:
                 self.__addMarker(index)
 
     def updateControlMode(self, mode, vehicleID):
         """Reattach entries to the controlled vehicle and handle observer switches."""
-        super(DistanceMarkerPlugin, self).updateControlMode(mode, vehicleID)
+        super(CustomCirclesPlugin, self).updateControlMode(mode, vehicleID)
         for entryID in self.__entryIDs + self.__nativeEntryIDs:
             if entryID is not None:
                 self._setMatrix(entryID, matrix_factory.makeAttachedVehicleMatrix())
