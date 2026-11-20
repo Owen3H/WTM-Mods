@@ -274,15 +274,16 @@ class CustomCirclesPlugin(common.SimplePlugin):
         """Create and draw one user-configured extra circle."""
         enabled_key = config.CIRCLE_SETTING_KEYS[index][0]
         # Avoid duplicates and honor both the global switch and this circle's toggle.
-        if (not config.SETTINGS['enabled'] or self.__entryIDs[index] is not None or
+        if (not config.SETTINGS['enabled'] or 
+                self.__entryIDs[index] is not None or 
                 not config.SETTINGS[enabled_key] or
-                _is_spectator_mode(self) or
+                _is_spectator_mode(self) or 
                 not _is_random_battle(self._arenaVisitor)):
             return
 
         vehicleInfo = self.__getVehicleInfo()
-        # Observer minimaps use the game's native handling instead.
-        if vehicleInfo is None or self.__isObserver(vehicleInfo): return
+        if vehicleInfo is None or self.__isObserver(vehicleInfo):
+            return # Don't add a circle if vehicle info is missing or marked as an observer (watching but not a player).
 
         matrix = matrix_factory.makeAttachedVehicleMatrix()
         transformProps = settings.TRANSFORM_FLAG.DEFAULT ^ settings.TRANSFORM_FLAG.NO_ROTATION

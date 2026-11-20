@@ -19,7 +19,7 @@ def _restore_template_defaults(api):
     if callable(set_defaults):
         set_defaults(config.MOD_ID, defaults)
     else:
-        print(config.TAG + 'Mod Menu cannot register reset defaults')
+        print(config.TAG + 'Aslain\'s Mod Menu was unable to register reset defaults')
 
 def _update_settings_template(api):
     template = config.build_settings_template(config.SETTINGS)
@@ -27,7 +27,7 @@ def _update_settings_template(api):
     if callable(reload_template):
         reload_template(config.MOD_ID, template)
     else:
-        print(config.TAG + 'Mod Menu cannot reload the updated template')
+        print(config.TAG + 'Aslain\'s Mod Menu was unable to reload the updated template')
 
 
 def _on_settings_changed(linkage, values):
@@ -58,7 +58,7 @@ def _on_settings_changed(linkage, values):
         if callable(update_settings):
             update_settings(config.MOD_ID, values)
         else:
-            print(config.TAG + 'Mod Settings API cannot save normalized colors')
+            print(config.TAG + 'Aslain\'s Mod Menu API cannot save normalized colors')
     if previous_settings['replace_wot_circle_markers'] != config.SETTINGS['replace_wot_circle_markers']:
         _update_settings_template(api)
     for plugin in list(config.ACTIVE_PLUGINS):
@@ -66,7 +66,7 @@ def _on_settings_changed(linkage, values):
     _restore_template_defaults(api)
 
 def _on_settings_reset(linkage, defaults):
-    """Called when the settings are reset in the Mod Settings menu."""
+    """Called when the settings are reset in Aslain's Mod Menu."""
     if not _settings_registered or linkage != config.MOD_ID:
         return
 
@@ -90,7 +90,7 @@ def _register_reset_callback(api):
     if id(api) in _reset_hooked:
         return
     if not hasattr(api, 'onResetMod'):
-        print(config.TAG + 'Mod Menu cannot register the reset callback')
+        print(config.TAG + 'Aslain\'s Mod Menu cannot register the reset callback')
         return
     try:
         api.onResetMod += _on_settings_reset
@@ -99,18 +99,19 @@ def _register_reset_callback(api):
         print(config.TAG + 'Could not register reset callback: ' + str(error))
 
 def _register_settings():
+    """Register the mod's settings with Aslain's Mod Menu, if available."""
     global _settings_registered, _settings_api
     if _settings_registered:
         return
 
     api = _get_settings_api()
     if api is None:
-        print(config.TAG + 'Mod Settings menu not found; using built-in defaults')
+        print(config.TAG + 'Aslain\'s Mod Menu not found; using built-in defaults')
         return
 
     get_settings = getattr(api, 'getModSettings', None)
     if not callable(get_settings):
-        print(config.TAG + 'Mod Menu cannot load saved settings')
+        print(config.TAG + 'Aslain\'s Mod Menu was unable to load saved settings')
         return
     
     saved_settings = get_settings(config.MOD_ID, config.SETTINGS_TEMPLATE)
@@ -119,12 +120,12 @@ def _register_settings():
     settings_template = config.build_settings_template()
     set_template = getattr(api, 'setModTemplate', None)
     if not callable(set_template):
-        print(config.TAG + 'Mod Menu cannot register this settings template')
+        print(config.TAG + 'Aslain\'s Mod Menu was unable to register this settings template')
         return
 
     registered_settings = set_template(config.MOD_ID, settings_template, _on_settings_changed)
     if not isinstance(registered_settings, dict):
-        print(config.TAG + 'Mod Menu did not return registered settings')
+        print(config.TAG + 'Aslain\'s Mod Menu did not return registered settings')
         return
 
     if isinstance(saved_settings, dict):
@@ -135,7 +136,7 @@ def _register_settings():
             if callable(update_settings):
                 update_settings(config.MOD_ID, restored_settings)
             else:
-                print(config.TAG + 'Mod Menu cannot restore saved settings')
+                print(config.TAG + 'Aslain\'s Mod Menu was unable to restore saved settings')
         saved_settings = restored_settings
     else:
         saved_settings = registered_settings
@@ -162,7 +163,7 @@ def _unregister_settings():
         except Exception as error:
             print(config.TAG + 'Could not unregister settings callback: ' + str(error))
     else:
-        print(config.TAG + 'Mod Menu cannot unregister the settings callback')
+        print(config.TAG + 'Aslain\'s Mod Menu was unable to unregister the settings callback')
 
     for api_id, reset_api in list(_reset_hooked.items()):
         if api_id != id(api):
