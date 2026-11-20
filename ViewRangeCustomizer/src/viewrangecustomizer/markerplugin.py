@@ -190,20 +190,17 @@ class CustomCirclesPlugin(common.SimplePlugin):
             self.__vehicleStateCtrl.onRespawnBaseMoving += self.__onRespawnBaseMoving
 
     def stop(self):
-        """Unsubscribe and delete all entries so later battles start cleanly."""
+        """Unsubscribe and clean up circles when the plugin stops."""
         if self in config.ACTIVE_PLUGINS:
             config.ACTIVE_PLUGINS.remove(self)
         if self.__vehicleStateCtrl is not None:
             self.__vehicleStateCtrl.onPostMortemSwitched -= self.__onPostMortemSwitched
             self.__vehicleStateCtrl.onRespawnBaseMoving -= self.__onRespawnBaseMoving
             self.__vehicleStateCtrl = None
-        for index in range(len(self.__entryIDs)):
-            self.__removeMarker(index)
-        for index, entryID in enumerate(self.__nativeEntryIDs):
-            if entryID is not None:
-                self._delEntry(entryID)
-                self.__nativeEntryIDs[index] = None
-                self.__nativeCircleData[index] = None
+        # WoT removes all entries before stopping plugins during minimap disposal.
+        self.__entryIDs = [None] * len(self.__entryIDs)
+        self.__nativeEntryIDs = [None] * len(self.__nativeEntryIDs)
+        self.__nativeCircleData = [None] * len(self.__nativeCircleData)
         super(CustomCirclesPlugin, self).stop()
 
     def initControlMode(self, mode, available):
