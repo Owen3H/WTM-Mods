@@ -1,0 +1,7 @@
+{
+  "name": "wtm-mods",
+  "private": true,
+  "workspaces": [
+    "ViewRangeCustomizer"
+  ]
+}

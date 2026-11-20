@@ -8,7 +8,7 @@
     "test": "bun --env-file ../.env build.ts test",
     "package": "bun --env-file ../.env build.ts package"
   },
-  "dependencies": {
+  "devDependencies": {
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6"
   }

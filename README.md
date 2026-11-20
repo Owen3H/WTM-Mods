@@ -9,13 +9,13 @@ All of my mods for World of Tanks in one repo.
 
 ### Developing a mod within this repo
 1. Fetch the [wot-src](https://github.com/izeberg/wot-src/) repo and place it in the root. Every mod in this repo will pick it up and receive Pylance hints for easier development.
+1. Run `bun install` from the repository root to install the shared workspace dependencies.
 1. Run `cd ViewRangeCustomizer` (or another mod of your choice) in the terminal.
 1. After editing code, run `bun run test` which will automatically compile and open World of Tanks to test the mod.
 1. Create a pull request, ideally one for each different feature/concern and clearly describe the intended changes.
 
 ## List of Mods
-
-| Mod Name | Description | Version |
+| Name | Description | Latest Version |
 | --- | --- | --- |
-| [Display Tech Tree Roles](DisplayTechTreeRoles/) | Displays vehicle roles above tank icons in the tech tree. COMING SOON | N/A |
-| [View Range Customizer](ViewRangeCustomizer/) | Customize minimap view range circles and add up to three additional circles. | v1.0.0 |
+| [Display Tech Tree Roles](https://wgmods.net/)<br>[[Jump to source](DisplayTechTreeRoles/)] | Displays vehicle roles above tank icons in the tech tree. COMING SOON | N/A |
+| [View Range Customizer](https://wgmods.net/8184)<br>[[Jump to source](ViewRangeCustomizer/)] | Customize minimap view range circles and add up to three additional circles. | v1.0.1 |
