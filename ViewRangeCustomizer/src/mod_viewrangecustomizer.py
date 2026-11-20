@@ -4,9 +4,7 @@ from gui.mods.viewrangecustomizer import config, markerplugin  # pyright: ignore
 _settings_registered = False
 _settings_api = None
 _reset_hooked = {}
-_original_setup_plugins = MinimapComponent._setupPlugins
-_setup_plugins = None
-_setup_hook_installed = False
+_setup_hook_state = None
 
 def _get_settings_api():
     try:
@@ -43,7 +41,7 @@ def _on_settings_changed(linkage, values):
     native_setting_keys.extend(key for marker_keys in config.NATIVE_CIRCLE_SETTING_KEYS for key in marker_keys)
     
     if any(previous_settings[key] != config.SETTINGS[key] for key in native_setting_keys):
-        markerplugin.refresh_native_circle_visibility()
+        markerplugin.refresh_native_circles()
     
     api = _get_settings_api()
     color_settings_changed = False
@@ -81,7 +79,7 @@ def _on_settings_reset(linkage, defaults):
     config.SETTINGS.clear()
     config.SETTINGS.update(reset_settings)
 
-    markerplugin.refresh_native_circle_visibility()
+    markerplugin.refresh_native_circles()
     api = _get_settings_api()
     for plugin in list(config.ACTIVE_PLUGINS):
         plugin.apply_settings()
@@ -145,7 +143,7 @@ def _register_settings():
     if isinstance(saved_settings, dict):
         config.SETTINGS.clear()
         config.SETTINGS.update(config.normalize_settings(saved_settings))
-    markerplugin.refresh_native_circle_visibility()
+    markerplugin.refresh_native_circles()
     _restore_template_defaults(api)
     _register_reset_callback(api)
     _settings_registered = True
@@ -178,35 +176,68 @@ def _unregister_settings():
     _settings_registered = False
     _settings_api = None
 
-def _make_setup_plugins(original):
-    """Capture the previous hook per wrapper to avoid recursion on reinitialization."""
+def _make_setup_plugins(previous_setup_plugins):
+    """Create a wrapper that preserves WoT's and earlier mods' plugin setup."""
     def setup_plugins(self, arenaVisitor):
-        """Get the game's minimap plugins and add this mod's plugin to the list."""
-        plugins = original(self, arenaVisitor)
-        personal_plugin_class = plugins.get('personal') # Get the built-in personal plugin class controlling minimap circles
+        """Add this mod's plugin without replacing WoT's existing plugins."""
+        plugins = previous_setup_plugins(self, arenaVisitor)
+        personal_plugin_class = plugins.get('personal') # Get the built-in plugin class that controls minimap circles
         if personal_plugin_class is not None:
-            markerplugin.install_native_circle_visibility_hook(personal_plugin_class)
+            markerplugin.install_native_circle_commands_hook(personal_plugin_class)
         else:
             print(config.TAG + 'Built-in minimap circle plugin was not found')
         plugins[config.MOD_ID] = markerplugin.CustomCirclesPlugin
         return plugins
     return setup_plugins
 
-def init():
-    global _original_setup_plugins, _setup_plugins, _setup_hook_installed
+def _install_setup_plugins_hook():
+    """Wrap WoT's minimap factory and remember exactly what must be restored.
 
+    WoT calls this instance method when it creates minimap plugins. Keep its
+    resolved method for delegation, but save the raw class attribute because
+    Python 2.7 returns an unbound method from normal class lookup.
+    """
+    global _setup_hook_state
+
+    if _setup_hook_state is None:
+        class_attributes = MinimapComponent.__dict__
+        defined_here = '_setupPlugins' in class_attributes
+        original_descriptor = class_attributes.get('_setupPlugins')
+        setup_plugins = _make_setup_plugins(getattr(MinimapComponent, '_setupPlugins'))
+        MinimapComponent._setupPlugins = setup_plugins
+        _setup_hook_state = (defined_here, original_descriptor, setup_plugins)
+
+def _restore_setup_plugins_hook():
+    """Undo our WoT hook only if it is still installed.
+
+    Restore the raw class attribute when WoT defined it here. If it was
+    inherited, delete our temporary override so normal inheritance resumes.
+    """
+    global _setup_hook_state
+
+    state = _setup_hook_state
+    try:
+        if state is not None:
+            defined_here, original_descriptor, wrapper = state
+            if MinimapComponent.__dict__.get('_setupPlugins') is wrapper:
+                if defined_here:
+                    setattr(MinimapComponent, '_setupPlugins', original_descriptor)
+                else:
+                    del MinimapComponent._setupPlugins
+    finally:
+        _setup_hook_state = None
+
+def init():
+    """Register settings and install this mod's WoT minimap hook."""
     _register_settings()
-    if not _setup_hook_installed:
-        _original_setup_plugins = MinimapComponent._setupPlugins # Store the original setup method before hooking
-        _setup_plugins = _make_setup_plugins(_original_setup_plugins)
-        MinimapComponent._setupPlugins = _setup_plugins
-        _setup_hook_installed = True
+    _install_setup_plugins_hook()
 
 def fini():
-    global _setup_hook_installed
-
-    _unregister_settings()
-    if _setup_hook_installed and MinimapComponent.__dict__.get('_setupPlugins') is _setup_plugins:
-        MinimapComponent._setupPlugins = _original_setup_plugins # Restore the original setup method
-    _setup_hook_installed = False
-    markerplugin.restore_native_circle_visibility_hooks()
+    """Unregister settings and restore only the minimap hooks we still own."""
+    try:
+        _unregister_settings()
+    finally:
+        try:
+            _restore_setup_plugins_hook()
+        finally:
+            markerplugin.restore_native_circle_commands_hooks()

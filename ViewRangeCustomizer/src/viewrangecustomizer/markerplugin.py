@@ -24,21 +24,28 @@ def _is_spectator_mode(plugin):
     return plugin._isInPostmortemMode() or plugin._isInVideoMode() or plugin._isInRespawnDeath()
 
 
-def install_native_circle_visibility_hook(plugin_class):
-    """Intercept native circle commands by wrapping the game's _invoke method.
+def install_native_circle_commands_hook(plugin_class):
+    """Intercept WoT's native circle commands while preserving its _invoke.
 
-    The wrapper runs this mod's circle logic first, then calls the original
-    game method when the native circle should be shown or changed.
+    plugin_class is WoT's personal minimap plugin class. It sends circle
+    commands through _invoke; our wrapper handles supported commands and
+    passes the rest to the previous method, which may be another mod's hook.
     """
     if plugin_class in _native_invoke_originals:
         return
 
+    # __dict__ contains only attributes defined on this class, not inherited
+    # ones. Save the raw entry so teardown can restore it exactly; normal class
+    # lookup returns an unbound method instead of the raw function in Python 2.
+    class_attrs = plugin_class.__dict__
+    invoke_defined_here = '_invoke' in class_attrs
+    original_invoke_descriptor = class_attrs.get('_invoke')
     original_invoke = getattr(plugin_class, '_invoke', None)
     if not callable(original_invoke):
         print(config.TAG + 'Cannot hook built-in minimap circle visibility')
         return
 
-    def invoke_with_circle_visibility(self, entry_id, *signature):
+    def invoke_with_native_circle_handling(self, entry_id, *signature):
         """Style supported native draw commands and forward all other calls."""
         # The stock "remove all" action has no per-circle command to inspect.
         # Clear every replacement first, then let the game clear its own entry.
@@ -88,9 +95,8 @@ def install_native_circle_visibility_hook(plugin_class):
             return original_invoke(self, entry_id, *signature)
         return
 
-    _native_invoke_originals[plugin_class] = (
-        original_invoke, invoke_with_circle_visibility)
-    plugin_class._invoke = invoke_with_circle_visibility
+    _native_invoke_originals[plugin_class] = (original_invoke_descriptor, invoke_with_native_circle_handling, invoke_defined_here)
+    plugin_class._invoke = invoke_with_native_circle_handling
 
 
 def get_replacement_plugin(parent):
@@ -105,22 +111,35 @@ def get_replacement_plugin(parent):
     return None
 
 
-def restore_native_circle_visibility_hooks():
-    """Restore original circle methods only when this mod still owns them.
+def _restore_native_circle_commands_hook(plugin_class, hook_state):
+    """Restore one WoT plugin class without overwriting a later mod's hook.
 
-    Our wrapper replaces the game's _invoke method while the mod is active.
-    "Owning" it means _invoke still points to this exact wrapper. If another
-    minimap mod has replaced _invoke in the meantime, we leave its change alone
-    and only discard our stored wrapper reference.
+    Use the raw class dictionary to test wrapper ownership. Restore the saved
+    descriptor if _invoke was defined on this class; otherwise remove our
+    override so the inherited WoT method becomes visible again.
     """
-    for plugin_class, hooks in _native_invoke_originals.items():
-        original_invoke, wrapper = hooks
-        if plugin_class.__dict__.get('_invoke') is wrapper: # Only restore if our wrapper is still in place
-            plugin_class._invoke = original_invoke
-    _native_invoke_originals.clear()
+    original_descriptor, wrapper, defined_here = hook_state
+    if plugin_class.__dict__.get('_invoke') is wrapper:
+        if defined_here:
+            plugin_class._invoke = original_descriptor
+        else:
+            del plugin_class._invoke
 
 
-def refresh_native_circle_visibility():
+def restore_native_circle_commands_hooks():
+    """Undo this mod's native-circle hooks when its WoT plugin is unloaded.
+
+    A hook changed by another mod is left untouched. Clear saved references
+    afterward so a later initialization can capture the current hook chain.
+    """
+    try:
+        for plugin_class, hooks in _native_invoke_originals.items():
+            _restore_native_circle_commands_hook(plugin_class, hooks)
+    finally:
+        _native_invoke_originals.clear()
+
+
+def refresh_native_circles():
     """Redraw currently visible native circles after a style setting changes."""
     for marker_plugin in list(config.ACTIVE_PLUGINS):
         get_plugin = getattr(marker_plugin._parentObj, 'getPlugin', None)
@@ -216,7 +235,7 @@ class CustomCirclesPlugin(common.SimplePlugin):
                 if config.SETTINGS['enabled'] and config.SETTINGS[keys[0]]:
                     self.__addMarker(index)
         if not spectator_mode:
-            refresh_native_circle_visibility()
+            refresh_native_circles()
 
     def __getVehicleInfo(self):
         """Get the current vehicle data needed for alive/observer checks."""
