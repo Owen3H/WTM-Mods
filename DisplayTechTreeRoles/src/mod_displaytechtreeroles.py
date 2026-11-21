@@ -1,6 +1,8 @@
 MOD_ID = 'wtm.display_tech_tree_roles'
+MOD_AUTHOR = None
+MOD_VERSION = None
 TAG = '[DisplayTechTreeRoles] '
-DEFAULT_SETTINGS = {'enabled': True, 'icon_size': 25, 'margin': -20, 'position': 1}
+DEFAULT_SETTINGS = {'enabled': True, 'icon_size': 24, 'margin': -18, 'position': 1}
 SETTINGS = dict(DEFAULT_SETTINGS)
 
 try:
@@ -19,6 +21,8 @@ _active_views = []
 def _settings_template(templates):
     return {
         'modDisplayName': 'Display Tech Tree Roles',
+        'modAuthor': MOD_AUTHOR,
+        'modVersion': MOD_VERSION,
         'enabled': DEFAULT_SETTINGS['enabled'],
         'column1': [
             templates.createSlider('Icon size (px)', 'icon_size', DEFAULT_SETTINGS['icon_size'],

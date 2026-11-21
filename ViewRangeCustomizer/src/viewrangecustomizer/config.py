@@ -19,6 +19,8 @@ except NameError:
 MOD_NAME = 'ViewRangeCustomizer'
 TAG = '[' + MOD_NAME + '] '
 MOD_ID = 'wtm.view_range_customizer'
+MOD_AUTHOR = None
+MOD_VERSION = None
 
 # Opacity values are stored as percentages (0-100) in the settings,
 # but the color values are stored as hex strings (RRGGBB) without alpha.
@@ -234,6 +236,8 @@ def build_settings_template(values=None):
     # Return the settings template as a dictionary with two columns for Mod Menu.
     return {
         'modDisplayName': 'View Range Customizer',
+        'modAuthor': MOD_AUTHOR,
+        'modVersion': MOD_VERSION,
         'enabled': values.get('enabled', True),
         'column1': [_copy_control(control) for control in column1],
         'column2': [_copy_control(control) for control in column2],

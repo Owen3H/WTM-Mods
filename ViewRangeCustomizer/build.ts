@@ -29,8 +29,24 @@ const MODULE_NAMES = ["__init__", "config", "markerplugin"]
 const PY_SCRIPT = [
     "import os, py_compile",
     "py_compile.compile(os.path.join('src', 'mod_viewrangecustomizer.py'), os.path.join('dist', 'mod_viewrangecustomizer.pyc'), doraise=True)",
-    "for name in ('__init__', 'config', 'markerplugin'):",
+    "for name in ('__init__', 'markerplugin'):",
     "    py_compile.compile(os.path.join('src', 'viewrangecustomizer', name + '.py'), os.path.join('dist', 'viewrangecustomizer', name + '.pyc'), doraise=True)",
+]
+const METADATA_COMPILE_SCRIPT = [
+    "import os, py_compile, sys, tempfile, xml.etree.ElementTree as ET",
+    "source_path, output_path, meta_path = sys.argv[1:4]",
+    "metadata = ET.parse(meta_path).getroot()",
+    "with open(source_path, 'rb') as f: source = f.read()",
+    "for field in ('author', 'version'):",
+    "    value = metadata.findtext(field)",
+    "    marker = 'MOD_' + field.upper() + ' = None'",
+    "    if not value or not value.strip() or source.count(marker) != 1: raise ValueError('Missing metadata or placeholder: ' + field)",
+    "    source = source.replace(marker, 'MOD_' + field.upper() + ' = ' + repr(value.strip()))",
+    "temp = tempfile.NamedTemporaryFile(suffix='.py', delete=False)",
+    "try:",
+    "    with temp: temp.write(source)",
+    "    py_compile.compile(temp.name, cfile=output_path, dfile=source_path, doraise=True)",
+    "finally: os.remove(temp.name)",
 ]
 const PACKAGE_SCRIPT = [
     "import os, sys, zipfile, xml.etree.ElementTree as ET",
@@ -50,16 +66,26 @@ const PACKAGE_SCRIPT = [
     "print('Created package at ' + package_path)",
 ]
 
+function compileWithMetadata(source: string, output: string): void {
+    const result = Bun.spawnSync(["py", "-2.7", "-B", "-c", METADATA_COMPILE_SCRIPT.join("\n"),
+        source, output, META_FILE], {
+        cwd: PROJECT_DIR, stderr: "inherit", stdout: "inherit",
+    })
+    if (result.exitCode !== 0) throw new Error("Python compilation failed with exit code " + result.exitCode)
+}
+
 function compile(): void {
     mkdirSync(PACKAGE_DIST_DIR, { recursive: true })
     console.log("Compiling Python 2.7 modules...")
 
-    const result = Bun.spawnSync(["py", "-2.7", "-c", PY_SCRIPT.join("\n")], {
+    const result = Bun.spawnSync(["py", "-2.7", "-B", "-c", PY_SCRIPT.join("\n")], {
         cwd: PROJECT_DIR,
         stderr: "inherit",
         stdout: "inherit",
     })
     if (result.exitCode !== 0) throw new Error("Python compilation failed with exit code " + result.exitCode)
+    compileWithMetadata(join(PROJECT_DIR, "src", "viewrangecustomizer", "config.py"),
+        join(PACKAGE_DIST_DIR, "config.pyc"))
     console.log("Compilation complete.")
 }
 
@@ -128,9 +154,11 @@ const cmd = process.argv[2] || "build"
 if (cmd === "compile") compile()
 else if (cmd === "copy") copyToResMods()
 else if (cmd === "build") {
+    console.log("Building mod...")
     compile()
     copyToResMods()
 } else if (cmd === "test") {
+    console.log("Starting test...")
     compile()
     copyToResMods()
     launchGame()

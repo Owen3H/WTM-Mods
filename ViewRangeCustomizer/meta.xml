@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root>
   <id>wtm.viewrangecustomizer</id>
+  <author>WindowsTaskManager</author>
   <name>View Range Customizer</name>
   <version>1.0.1</version>
   <description>Customize visual WoT minimap view range circles in Random Battles and add up to three additional circles.</description>
