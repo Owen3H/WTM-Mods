@@ -60,7 +60,6 @@ const PACKAGE_SCRIPT = [
     "for name in ('__init__', 'config', 'markerplugin'):",
     "    mod_files.append((os.path.join(dist_dir, 'viewrangecustomizer', name + '.pyc'), 'res/scripts/client/gui/mods/viewrangecustomizer/' + name + '.pyc'))",
     "with zipfile.ZipFile(package_path, 'w', zipfile.ZIP_STORED) as package:",
-    "    package.write(meta_path, 'meta.xml')",
     "    for source, archive_path in mod_files:",
     "        package.write(source, archive_path)",
     "print('Created package at ' + package_path)",

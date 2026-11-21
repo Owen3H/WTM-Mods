@@ -201,9 +201,9 @@ def _install_setup_plugins_hook():
     global _setup_hook_state
 
     if _setup_hook_state is None:
-        class_attributes = MinimapComponent.__dict__
-        defined_here = '_setupPlugins' in class_attributes
-        original_descriptor = class_attributes.get('_setupPlugins')
+        class_attrs = MinimapComponent.__dict__
+        defined_here = '_setupPlugins' in class_attrs
+        original_descriptor = class_attrs.get('_setupPlugins')
         setup_plugins = _make_setup_plugins(getattr(MinimapComponent, '_setupPlugins'))
         MinimapComponent._setupPlugins = setup_plugins
         _setup_hook_state = (defined_here, original_descriptor, setup_plugins)

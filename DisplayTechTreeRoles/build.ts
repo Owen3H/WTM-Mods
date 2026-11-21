@@ -60,11 +60,10 @@ const METADATA_COMPILE_SCRIPT = [
 ]
 export const PACKAGE_SCRIPT = [
     "import os, sys, zipfile, msvcrt",
-    "output, meta, compiled, bundle_path = sys.argv[1:5]",
+    "output, compiled, bundle_path = sys.argv[1:4]",
     "msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)",
     "bundle = sys.stdin.read()",
     "with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_STORED) as package:",
-    "    package.write(meta, 'meta.xml')",
     "    package.write(compiled, 'res/scripts/client/gui/mods/mod_displaytechtreeroles.pyc')",
     "    package.writestr('res/' + bundle_path, bundle)",
 ]
@@ -108,7 +107,7 @@ function packageMod(): void {
     const bundle = patchBundle(new TextDecoder("utf-8", { fatal: true }).decode(readResult.stdout))
     const output = join(DIST_DIR, `${modId[1].trim()}_${GAME_VER}_${modVersion[1].trim()}.wotmod`)
     const packageResult = Bun.spawnSync(["py", "-2.7", "-c", PACKAGE_SCRIPT.join("\n"),
-        output, META_FILE, COMPILED_MOD, BUNDLE_PATH], {
+        output, COMPILED_MOD, BUNDLE_PATH], {
         cwd: PROJECT_DIR,
         stdin: Buffer.from(bundle, "utf8"),
         stdout: "inherit",
