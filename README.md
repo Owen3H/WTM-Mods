@@ -17,5 +17,5 @@ All of my mods for World of Tanks in one repo.
 ## List of Mods
 | Name | Description | Latest Version |
 | --- | --- | --- |
-| [Display Tech Tree Roles](https://wgmods.net/)<br>[[Jump to source](DisplayTechTreeRoles/)] | Displays vehicle roles above tank icons in the tech tree. COMING SOON | N/A |
-| [View Range Customizer](https://wgmods.net/8184)<br>[[Jump to source](ViewRangeCustomizer/)] | Customize minimap view range circles and add up to three additional circles. | v1.0.1 |
+| [View Range Customizer](ViewRangeCustomizer/) | Customize minimap view range circles and add up to three additional circles. | [v1.0.1](https://wgmods.net/8184) |
+| [Display Tech Tree Roles](DisplayTechTreeRoles/) | Displays vehicle roles above tank icons in the tech tree. COMING SOON | N/A |

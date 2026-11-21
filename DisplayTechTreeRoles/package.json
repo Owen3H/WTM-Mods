@@ -1,0 +1,10 @@
+{
+  "name": "display-tech-tree-roles",
+  "private": true,
+  "scripts": {
+    "compile": "bun --env-file ../.env build.ts compile",
+    "build": "bun --env-file ../.env build.ts build",
+    "package": "bun --env-file ../.env build.ts package",
+    "test": "bun --env-file ../.env build.ts test"
+  }
+}
