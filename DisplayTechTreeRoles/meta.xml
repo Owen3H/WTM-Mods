@@ -2,6 +2,6 @@
 <root>
   <id>wtm.displaytechtreeroles</id>
   <name>Display Tech Tree Roles</name>
-  <version>0.1.0</version>
+  <version>1.0.0</version>
   <description>Display vehicle role icons above tech-tree vehicles.</description>
 </root>

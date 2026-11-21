@@ -102,6 +102,7 @@ def _register_settings():
     if not isinstance(registered, dict):
         print(TAG + 'Aslain Mod Menu did not return registered settings')
         return
+    _settings_api = api
     restored = _normalize_settings(registered, DEFAULT_SETTINGS)
     if isinstance(saved, dict):
         restored = _normalize_settings(saved, restored)
@@ -125,7 +126,6 @@ def _register_settings():
         _reset_registered = True
     else:
         print(TAG + 'Aslain Mod Menu cannot register the reset callback')
-    _settings_api = api
     _settings_registered = True
 
 
@@ -134,20 +134,26 @@ def _unregister_settings():
     api = _settings_api
     if api is None:
         return
-    if hasattr(api, 'onSettingsChanged'):
-        api.onSettingsChanged -= _on_settings_changed
-    else:
-        print(TAG + 'Aslain Mod Menu cannot unregister the settings callback')
-    if _reset_registered:
-        api.onResetMod -= _on_settings_reset
-    _settings_api = None
     _settings_registered = False
-    _reset_registered = False
+    try:
+        try:
+            if hasattr(api, 'onSettingsChanged'):
+                api.onSettingsChanged -= _on_settings_changed
+            else:
+                print(TAG + 'Aslain Mod Menu cannot unregister the settings callback')
+        finally:
+            if _reset_registered:
+                api.onResetMod -= _on_settings_reset
+    finally:
+        _settings_api = None
+        _reset_registered = False
 
 
-def _make_tech_tree_nodes_hook(previous_get_tech_tree_nodes):
+def _make_tech_tree_nodes_hook(previous_get_tech_tree_nodes, active):
     def get_tech_tree_nodes(self, node, nodeRows):
         data = previous_get_tech_tree_nodes(self, node, nodeRows)
+        if not active[0]:
+            return data
         vehicle = node.getItem()
         role_label = vehicle.roleLabel
         if SETTINGS['enabled'] and role_label and role_label != 'NotDefined':
@@ -165,18 +171,35 @@ def _make_tech_tree_nodes_hook(previous_get_tech_tree_nodes):
     return get_tech_tree_nodes
 
 
+def _install_hook(cls, name, make_hook):
+    defined_here = name in cls.__dict__
+    original = cls.__dict__.get(name)
+    previous = getattr(cls, name)
+    # A later mod may retain this wrapper after our class attribute is restored.
+    active = [True]
+    wrapper = make_hook(previous, active)
+    setattr(cls, name, wrapper)
+    return cls, name, defined_here, original, wrapper, active
+
+
+def _restore_hook(state):
+    cls, name, defined_here, original, wrapper, active = state
+    active[0] = False
+    if cls.__dict__.get(name) is wrapper:
+        if defined_here:
+            setattr(cls, name, original)
+        else:
+            delattr(cls, name)
+
+
 def _install_tech_tree_hook():
     global _tech_tree_hook_state
     if _tech_tree_hook_state is not None:
         return
 
     from gui.impl.lobby.tech_tree.tech_tree_view import _NationTreeViewDumper
-    original = _NationTreeViewDumper.__dict__.get('_getTechTreeNodes')
-    if original is None:
-        raise RuntimeError('DisplayTechTreeRoles: tech tree node method not found')
-    wrapper = _make_tech_tree_nodes_hook(original)
-    _NationTreeViewDumper._getTechTreeNodes = wrapper
-    _tech_tree_hook_state = (_NationTreeViewDumper, original, wrapper)
+    _tech_tree_hook_state = _install_hook(_NationTreeViewDumper, '_getTechTreeNodes',
+                                          _make_tech_tree_nodes_hook)
 
 
 def _restore_tech_tree_hook():
@@ -185,24 +208,22 @@ def _restore_tech_tree_hook():
     if state is None:
         return
 
-    dumper_class, original, wrapper = state
-    if dumper_class.__dict__.get('_getTechTreeNodes') is wrapper:
-        setattr(dumper_class, '_getTechTreeNodes', original)
+    _restore_hook(state)
     _tech_tree_hook_state = None
 
 
-def _make_view_loading_hook(previous):
+def _make_view_loading_hook(previous, active):
     def on_loading(self, *args, **kwargs):
         result = previous(self, *args, **kwargs)
-        if self not in _active_views:
+        if active[0] and self not in _active_views:
             _active_views.append(self)
         return result
     return on_loading
 
 
-def _make_view_finalize_hook(previous):
+def _make_view_finalize_hook(previous, active):
     def finalize(self):
-        if self in _active_views:
+        if active[0] and self in _active_views:
             _active_views.remove(self)
         return previous(self)
     return finalize
@@ -214,29 +235,33 @@ def _install_view_hooks():
     from gui.impl.lobby.tech_tree.tech_tree_view import TechTreeView
     for name, make_hook in (('_onLoading', _make_view_loading_hook),
                             ('_finalize', _make_view_finalize_hook)):
-        original = TechTreeView.__dict__[name]
-        wrapper = make_hook(original)
-        setattr(TechTreeView, name, wrapper)
-        _view_hook_states.append((TechTreeView, name, original, wrapper))
+        _view_hook_states.append(_install_hook(TechTreeView, name, make_hook))
 
 
 def _restore_view_hooks():
-    for view_class, name, original, wrapper in _view_hook_states:
-        if view_class.__dict__.get(name) is wrapper:
-            setattr(view_class, name, original)
+    for state in _view_hook_states:
+        _restore_hook(state)
     del _view_hook_states[:]
     del _active_views[:]
 
 
 def init():
-    _install_tech_tree_hook()
-    _install_view_hooks()
-    _register_settings()
+    initialized = False
+    try:
+        _install_tech_tree_hook()
+        _install_view_hooks()
+        _register_settings()
+        initialized = True
+    finally:
+        if not initialized:
+            fini()
 
 
 def fini():
     try:
         _unregister_settings()
     finally:
-        _restore_view_hooks()
-        _restore_tech_tree_hook()
+        try:
+            _restore_view_hooks()
+        finally:
+            _restore_tech_tree_hook()

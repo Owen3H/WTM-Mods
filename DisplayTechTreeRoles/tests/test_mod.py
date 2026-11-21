@@ -169,6 +169,74 @@ class HookTests(unittest.TestCase):
         self.mod.fini()
         self.assertIs(self.dumper.__dict__['_getTechTreeNodes'], later_hook)
 
+    def test_inherited_hooks_restore_inheritance(self):
+        module = sys.modules['gui.impl.lobby.tech_tree.tech_tree_view']
+        class InheritedDumper(self.dumper):
+            pass
+        class InheritedView(self.view_class):
+            pass
+        module._NationTreeViewDumper = InheritedDumper
+        module.TechTreeView = InheritedView
+        self.mod.init()
+        self.assertIn('roleIcon', InheritedDumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}))
+        view = InheritedView()
+        view._onLoading()
+        self.api.onSettingsChanged.fire(self.mod.MOD_ID, {'icon_size': 30})
+        self.assertEqual(view.redraws, 1)
+        self.mod.fini()
+        self.assertNotIn('_getTechTreeNodes', InheritedDumper.__dict__)
+        self.assertNotIn('_onLoading', InheritedView.__dict__)
+        self.assertNotIn('_finalize', InheritedView.__dict__)
+
+    def test_failed_initialization_restores_hooks(self):
+        original_nodes = self.dumper.__dict__['_getTechTreeNodes']
+        original_loading = self.view_class.__dict__['_onLoading']
+        del self.view_class._finalize
+        with self.assertRaises((KeyError, AttributeError)):
+            self.mod.init()
+        self.assertIs(self.dumper.__dict__['_getTechTreeNodes'], original_nodes)
+        self.assertIs(self.view_class.__dict__['_onLoading'], original_loading)
+
+    def test_failed_settings_registration_unsubscribes_and_restores_hooks(self):
+        original_nodes = self.dumper.__dict__['_getTechTreeNodes']
+        def fail_defaults(linkage, defaults):
+            raise RuntimeError('defaults failed')
+        self.api.setModDefaults = fail_defaults
+        with self.assertRaises(RuntimeError):
+            self.mod.init()
+        self.assertEqual(self.api.onSettingsChanged.handlers, [])
+        self.assertEqual(self.api.onResetMod.handlers, [])
+        self.assertIs(self.dumper.__dict__['_getTechTreeNodes'], original_nodes)
+
+    def test_reset_callback_removed_if_settings_unsubscribe_fails(self):
+        self.mod.init()
+        class FailingEvent(Event):
+            def __isub__(self, handler):
+                raise RuntimeError('unsubscribe failed')
+        self.api.onSettingsChanged = FailingEvent()
+        with self.assertRaises(RuntimeError):
+            self.mod.fini()
+        self.assertEqual(self.api.onResetMod.handlers, [])
+
+    def test_later_hooks_do_not_keep_mod_active_after_fini(self):
+        self.mod.init()
+        previous_nodes = self.dumper._getTechTreeNodes
+        previous_loading = self.view_class._onLoading
+        def later_nodes(instance, node, rows):
+            return previous_nodes(instance, node, rows)
+        def later_loading(instance):
+            return previous_loading(instance)
+        self.dumper._getTechTreeNodes = later_nodes
+        self.view_class._onLoading = later_loading
+        self.mod.fini()
+        self.assertEqual(self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}), {'original': {}})
+        self.view_class()._onLoading()
+        self.assertEqual(self.mod._active_views, [])
+        self.mod.init()
+        view = self.view_class()
+        view._onLoading()
+        self.assertEqual(self.mod._active_views, [view])
+
     def test_saved_settings_live_changes_reset_and_cleanup(self):
         self.api.saved = {'enabled': True, 'icon_size': 36, 'margin': 4, 'position': 1}
         original_loading = self.view_class.__dict__['_onLoading']
