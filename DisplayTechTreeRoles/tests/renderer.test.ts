@@ -6,19 +6,24 @@ import { NODE_COMPONENT, NODE_CONTENT, PACKAGE_SCRIPT, patchBundle, ROLE_ICON } 
 
 const original = NODE_COMPONENT + "x" + NODE_CONTENT
 
-test("packages all mod files without compression", () => {
+test("packages metadata and mod files without compression", () => {
     const dir = mkdtempSync(join(tmpdir(), "tech-tree-package-test-"))
     try {
         const output = join(dir, "mod.wotmod")
+        const meta = join(dir, "meta.xml")
         const compiled = join(dir, "mod.pyc")
+        const bundle = join(dir, "bundle.js")
+        writeFileSync(meta, "<mod/>")
         writeFileSync(compiled, "compiled")
+        writeFileSync(bundle, "bundle")
         const result = Bun.spawnSync(["py", "-2.7", "-c", PACKAGE_SCRIPT.join("\n"),
-            output, compiled, "gui/test.js"], { stdin: Buffer.from("bundle") })
+            meta, output, compiled, "res/scripts/client/gui/mods/mod_displaytechtreeroles.pyc",
+            bundle, "res/gui/test.js"])
         expect(result.exitCode).toBe(0)
         const check = Bun.spawnSync(["py", "-2.7", "-c", [
             "import sys, zipfile",
             "with zipfile.ZipFile(sys.argv[1]) as package:",
-            "    expected = {'res/scripts/client/gui/mods/mod_displaytechtreeroles.pyc': 'compiled', 'res/gui/test.js': 'bundle'}",
+            "    expected = {'meta.xml': '<mod/>', 'res/scripts/client/gui/mods/mod_displaytechtreeroles.pyc': 'compiled', 'res/gui/test.js': 'bundle'}",
             "    assert set(package.namelist()) == set(expected)",
             "    for item in package.infolist():",
             "        assert item.compress_type == zipfile.ZIP_STORED",
