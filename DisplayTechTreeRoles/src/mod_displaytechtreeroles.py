@@ -1,6 +1,6 @@
 MOD_ID = 'wtm.display_tech_tree_roles'
-MOD_AUTHOR = None
-MOD_VERSION = None
+MOD_AUTHOR = None  # Replaced at build time with author from meta.xml
+MOD_VERSION = None # Replaced at build time with version from meta.xml
 TAG = '[DisplayTechTreeRoles] '
 DEFAULT_SETTINGS = {'enabled': True, 'icon_size': 24, 'margin': -18, 'position': 1}
 SETTINGS = dict(DEFAULT_SETTINGS)

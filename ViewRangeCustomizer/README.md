@@ -1,9 +1,10 @@
 # World of Tanks - View Range Customizer
 Mod for World of Tanks that changes only the visual appearance of minimap view-range circles and can add up to three additional visual circles. 
 
+Settings are changed through **Aslain's Mod Menu**, including the mod's enabled switch.
+
 ## Important
 - The mod is only active in **Random Battles**! All other modes use the game's native minimap circles. *Subject to change*
-- Settings are changed through **Aslain's Mod Menu**, including the mod's enabled switch.
 - It does not change spotting, visibility, or native view range distances - only styling and additional circles.
 
 > [!IMPORTANT]

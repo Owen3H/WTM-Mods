@@ -19,8 +19,8 @@ except NameError:
 MOD_NAME = 'ViewRangeCustomizer'
 TAG = '[' + MOD_NAME + '] '
 MOD_ID = 'wtm.view_range_customizer'
-MOD_AUTHOR = None
-MOD_VERSION = None
+MOD_AUTHOR = None  # Replaced at build time with author from meta.xml
+MOD_VERSION = None # Replaced at build time with version from meta.xml
 
 # Opacity values are stored as percentages (0-100) in the settings,
 # but the color values are stored as hex strings (RRGGBB) without alpha.
