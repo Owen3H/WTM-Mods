@@ -7,8 +7,7 @@ _settings_api = None
 _settings_registered = False
 _reset_registered = False
 
-_tech_tree_hook_state = None
-_view_hook_states = []
+_hooks = {}
 
 _active_views = []
 _injected_views = {}
@@ -60,12 +59,14 @@ def _register_settings():
         print(config.TAG + 'Aslain Mod Menu cannot register settings')
         return
 
-    saved = get_settings(config.MOD_ID, config.settings_template(templates))
-    registered = set_template(config.MOD_ID, config.settings_template(templates), _on_settings_changed)
+    template = config.settings_template(templates)
+    saved = get_settings(config.MOD_ID, template)
+    _settings_api = api
+    registered = set_template(config.MOD_ID, template, _on_settings_changed)
     if not isinstance(registered, dict):
         print(config.TAG + 'Aslain Mod Menu did not return registered settings')
+        _unregister_settings()
         return
-    _settings_api = api
     restored = config.normalize_settings(registered, config.DEFAULT_SETTINGS)
     if isinstance(saved, dict):
         restored = config.normalize_settings(saved, restored)
@@ -85,8 +86,8 @@ def _register_settings():
     else:
         print(config.TAG + 'Aslain Mod Menu cannot register reset defaults')
     if hasattr(api, 'onResetMod'):
-        api.onResetMod += _on_settings_reset
         _reset_registered = True
+        api.onResetMod += _on_settings_reset
     else:
         print(config.TAG + 'Aslain Mod Menu cannot register the reset callback')
     _settings_registered = True
@@ -101,12 +102,18 @@ def _unregister_settings():
     try:
         try:
             if hasattr(api, 'onSettingsChanged'):
-                api.onSettingsChanged -= _on_settings_changed
+                try:
+                    api.onSettingsChanged -= _on_settings_changed
+                except ValueError:
+                    print(config.TAG + 'Aslain Mod Menu settings callback was not registered')
             else:
                 print(config.TAG + 'Aslain Mod Menu cannot unregister the settings callback')
         finally:
             if _reset_registered:
-                api.onResetMod -= _on_settings_reset
+                try:
+                    api.onResetMod -= _on_settings_reset
+                except ValueError:
+                    print(config.TAG + 'Aslain Mod Menu reset callback was not registered')
     finally:
         _settings_api = None
         _reset_registered = False
@@ -115,38 +122,47 @@ def _unregister_settings():
 def _make_tech_tree_nodes_hook(previous_get_tech_tree_nodes, active):
     def get_tech_tree_nodes(self, node, nodeRows):
         data = previous_get_tech_tree_nodes(self, node, nodeRows)
-        if not active[0]:
-            return data
-        vehicle = node.getItem()
-        role_label = vehicle.roleLabel
-        if config.SETTINGS['enabled'] and role_label and role_label != 'NotDefined':
-            from gui.impl import backport
-            from gui.impl.gen import R
-            from gui.impl.utils.path import normalizeGfImagePath
-            roles = R.images.gui.maps.icons.roleExp.roles
-            icons = roles.c_32x32 if role_label == 'role_SPG' else roles.c_24x24
-            data['roleIcon'] = normalizeGfImagePath(backport.image(icons.dyn(role_label)()))
-            data['roleIconSize'] = config.SETTINGS['icon_size']
-            data['roleIconMargin'] = config.SETTINGS['margin']
-            data['roleIconPosition'] = 'bottom' if config.SETTINGS['position'] else 'top'
+        if active[0]:
+            try:
+                vehicle = node.getItem()
+                role_label = vehicle.roleLabel
+                if config.SETTINGS['enabled'] and role_label and role_label != 'NotDefined':
+                    from gui.impl import backport
+                    from gui.impl.gen import R
+                    from gui.impl.utils.path import normalizeGfImagePath
+                    roles = R.images.gui.maps.icons.roleExp.roles
+                    icons = roles.c_32x32 if role_label == 'role_SPG' else roles.c_24x24
+                    data['roleIcon'] = normalizeGfImagePath(backport.image(icons.dyn(role_label)()))
+                    data['roleIconSize'] = config.SETTINGS['icon_size']
+                    data['roleIconMargin'] = config.SETTINGS['margin']
+                    data['roleIconPosition'] = 'bottom' if config.SETTINGS['position'] else 'top'
+            except Exception:
+                _logger.exception(config.TAG + 'Could not add vehicle role data')
         return data
 
     return get_tech_tree_nodes
 
 
 def _install_hook(cls, name, make_hook):
+    key = (cls, name)
+    if key in _hooks:
+        return
     defined_here = name in cls.__dict__
     original = cls.__dict__.get(name)
     previous = getattr(cls, name)
-    # A later mod may retain this wrapper after our class attribute is restored.
+    # A later wrapper may retain this callable after the class attribute is restored.
     active = [True]
     wrapper = make_hook(previous, active)
+    wrapper._wtm_displaytechtreeroles_owner = name
     setattr(cls, name, wrapper)
-    return cls, name, defined_here, original, wrapper, active
+    _hooks[key] = (defined_here, original, wrapper, active)
 
 
-def _restore_hook(state):
-    cls, name, defined_here, original, wrapper, active = state
+def _restore_hook(cls, name):
+    state = _hooks.pop((cls, name), None)
+    if state is None:
+        return
+    defined_here, original, wrapper, active = state
     active[0] = False
     if cls.__dict__.get(name) is wrapper:
         if defined_here:
@@ -156,23 +172,21 @@ def _restore_hook(state):
 
 
 def _install_tech_tree_hook():
-    global _tech_tree_hook_state
-    if _tech_tree_hook_state is not None:
-        return
-
     from gui.impl.lobby.tech_tree.tech_tree_view import _NationTreeViewDumper
-    _tech_tree_hook_state = _install_hook(_NationTreeViewDumper, '_getTechTreeNodes',
-                                          _make_tech_tree_nodes_hook)
+    _install_hook(_NationTreeViewDumper, '_getTechTreeNodes', _make_tech_tree_nodes_hook)
 
 
-def _restore_tech_tree_hook():
-    global _tech_tree_hook_state
-    state = _tech_tree_hook_state
-    if state is None:
-        return
-
-    _restore_hook(state)
-    _tech_tree_hook_state = None
+def _restore_hooks():
+    first_error = None
+    for cls, name in list(_hooks):
+        try:
+            _restore_hook(cls, name)
+        except Exception as error:
+            _logger.exception(config.TAG + 'Could not restore hook ' + name)
+            if first_error is None:
+                first_error = error
+    if first_error is not None:
+        raise first_error
 
 
 def _make_view_loading_hook(previous, active):
@@ -244,7 +258,15 @@ def _attach_injection(view):
         if view.getChildView(layout_id) is not child:
             raise RuntimeError('Gameface injection child was not attached')
     except Exception:
-        child.destroy()
+        try:
+            if view.getChildView(layout_id) is child:
+                view.setChildView(layout_id, None)
+        except Exception:
+            _logger.exception(config.TAG + 'Could not roll back Gameface injection')
+        try:
+            child.destroy()
+        except Exception:
+            _logger.exception(config.TAG + 'Could not destroy failed Gameface injection')
         raise
     _injected_views[view] = (layout_id, child)
 
@@ -297,25 +319,20 @@ def _make_view_update_hook(previous, active):
 
 
 def _install_view_hooks():
-    if _view_hook_states:
-        return
     from gui.impl.lobby.tech_tree.tech_tree_view import TechTreeView
     for name, make_hook in (('_onLoading', _make_view_loading_hook),
                             ('_onLoaded', _make_view_loaded_hook),
                             ('_TechTreeView__fullUpdateOfViewModel', _make_view_update_hook),
                             ('_finalize', _make_view_finalize_hook)):
-        _view_hook_states.append(_install_hook(TechTreeView, name, make_hook))
+        _install_hook(TechTreeView, name, make_hook)
 
 
-def _restore_view_hooks():
+def _cleanup_views():
     for view in list(_injected_views):
         try:
             _detach_injection(view)
         except Exception:
             _logger.exception(config.TAG + 'Could not detach Gameface injection')
-    for state in _view_hook_states:
-        _restore_hook(state)
-    del _view_hook_states[:]
     del _active_views[:]
 
 
@@ -324,7 +341,17 @@ def init():
     try:
         _install_tech_tree_hook()
         _install_view_hooks()
-        _register_settings()
+        previous_settings = dict(config.SETTINGS)
+        try:
+            _register_settings()
+        except Exception:
+            _logger.exception(config.TAG + 'Could not register settings; using previous settings')
+            try:
+                _unregister_settings()
+            except Exception:
+                _logger.exception(config.TAG + 'Could not clean up failed settings registration')
+            config.SETTINGS.clear()
+            config.SETTINGS.update(previous_settings)
         initialized = True
     finally:
         if not initialized:
@@ -336,6 +363,6 @@ def fini():
         _unregister_settings()
     finally:
         try:
-            _restore_view_hooks()
+            _cleanup_views()
         finally:
-            _restore_tech_tree_hook()
+            _restore_hooks()

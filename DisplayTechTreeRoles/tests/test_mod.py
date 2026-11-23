@@ -239,6 +239,68 @@ class HookTests(unittest.TestCase):
         self.mod.fini()
         self.assertIs(self.dumper.__dict__['_getTechTreeNodes'], original)
 
+    def test_preserves_hook_installed_before_this_mod(self):
+        original = self.dumper._getTechTreeNodes
+        def earlier_hook(self, node, nodeRows):
+            result = original(self, node, nodeRows)
+            result['earlier'] = True
+            return result
+        self.dumper._getTechTreeNodes = earlier_hook
+        self.mod.init()
+        result = self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {})
+        self.assertTrue(result['earlier'])
+        self.assertIn('roleIcon', result)
+        self.mod.fini()
+        self.assertIs(self.dumper.__dict__['_getTechTreeNodes'], earlier_hook)
+
+    def test_repeated_init_does_not_wrap_interposed_hooks_again(self):
+        self.mod.init()
+        previous_nodes = self.dumper._getTechTreeNodes
+        previous_loading = self.view_class._onLoading
+        calls = []
+
+        def later_nodes(instance, node, node_rows):
+            calls.append('nodes')
+            return previous_nodes(instance, node, node_rows)
+
+        def later_loading(instance, *args, **kwargs):
+            calls.append('loading')
+            return previous_loading(instance, *args, **kwargs)
+
+        self.dumper._getTechTreeNodes = later_nodes
+        self.view_class._onLoading = later_loading
+        self.mod.init()
+
+        self.assertIs(self.dumper.__dict__['_getTechTreeNodes'], later_nodes)
+        self.assertIs(self.view_class.__dict__['_onLoading'], later_loading)
+        self.assertIn('roleIcon', self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}))
+        self.view_class()._onLoading()
+        self.assertEqual(calls, ['nodes', 'loading'])
+
+    def test_optional_role_hook_failure_preserves_original_result(self):
+        self.mod.init()
+        class Logger(object):
+            def __init__(self):
+                self.errors = []
+
+            def exception(self, message):
+                self.errors.append(message)
+
+        logger = Logger()
+        original_logger = self.mod._logger
+        setattr(self.mod, '_logger', logger)
+
+        class BrokenNode(object):
+            def getItem(self):
+                raise RuntimeError('role metadata unavailable')
+
+        try:
+            result = self.dumper()._getTechTreeNodes(BrokenNode(), {'row': 3})
+        finally:
+            setattr(self.mod, '_logger', original_logger)
+        self.assertEqual(result, {'original': {'row': 3}})
+        self.assertEqual(logger.errors, ['[DisplayTechTreeRoles] Could not add vehicle role data'])
+
     def test_fini_does_not_replace_a_later_hook(self):
         self.mod.init()
         later_hook = lambda self, node, nodeRows: {}
@@ -274,16 +336,47 @@ class HookTests(unittest.TestCase):
         self.assertIs(self.dumper.__dict__['_getTechTreeNodes'], original_nodes)
         self.assertIs(self.view_class.__dict__['_onLoading'], original_loading)
 
-    def test_failed_settings_registration_unsubscribes_and_restores_hooks(self):
-        original_nodes = self.dumper.__dict__['_getTechTreeNodes']
+    def test_failed_settings_registration_unsubscribes_and_keeps_hooks(self):
+        previous_settings = dict(self.mod.config.SETTINGS)
+        self.api.saved = {'enabled': False}
         def fail_defaults(linkage, defaults):
             raise RuntimeError('defaults failed')
         self.api.setModDefaults = fail_defaults
-        with self.assertRaises(RuntimeError):
-            self.mod.init()
+        self.mod.init()
         self.assertEqual(self.api.onSettingsChanged.handlers, [])
         self.assertEqual(self.api.onResetMod.handlers, [])
-        self.assertIs(self.dumper.__dict__['_getTechTreeNodes'], original_nodes)
+        self.assertEqual(self.mod.config.SETTINGS, previous_settings)
+        self.assertIn('roleIcon', self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}))
+
+    def test_partial_settings_registration_is_unsubscribed_on_failure(self):
+        def fail_after_subscribing(linkage, template, callback):
+            self.api.onSettingsChanged += callback
+            raise RuntimeError('template registration failed')
+        setattr(self.api, 'setModTemplate', fail_after_subscribing)
+        self.mod.init()
+        self.assertEqual(self.api.onSettingsChanged.handlers, [])
+        self.assertEqual(self.api.onResetMod.handlers, [])
+        self.assertIn('roleIcon', self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}))
+
+    def test_settings_registration_failure_before_subscribing_keeps_hooks(self):
+        def fail_before_subscribing(linkage, template, callback):
+            raise RuntimeError('template registration failed')
+        setattr(self.api, 'setModTemplate', fail_before_subscribing)
+        self.mod.init()
+        self.assertEqual(self.api.onSettingsChanged.handlers, [])
+        self.assertIsNone(self.mod._settings_api)
+        self.assertIn('roleIcon', self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}))
+
+    def test_invalid_settings_registration_is_unsubscribed(self):
+        def return_invalid_result(linkage, template, callback):
+            self.api.onSettingsChanged += callback
+            return None
+        setattr(self.api, 'setModTemplate', return_invalid_result)
+        self.mod.init()
+        self.assertEqual(self.api.onSettingsChanged.handlers, [])
+        self.assertEqual(self.api.onResetMod.handlers, [])
+        self.assertIsNone(self.mod._settings_api)
+        self.assertFalse(self.mod._settings_registered)
 
     def test_reset_callback_removed_if_settings_unsubscribe_fails(self):
         self.mod.init()
@@ -428,6 +521,33 @@ class HookTests(unittest.TestCase):
         view.children[123] = replacement
         self.mod.fini()
         self.assertIs(view.children[123], replacement)
+
+    def test_failed_injection_attachment_rolls_back_child(self):
+        self.mod.init()
+        view = self.view_class()
+        original_get_child = view.getChildView
+        original_set_child = view.setChildView
+        child_calls = [0]
+        attached = []
+
+        def hide_attached_child(layout_id):
+            child_calls[0] += 1
+            if child_calls[0] == 2:
+                return None
+            return original_get_child(layout_id)
+
+        def record_child(layout_id, child):
+            if child is not None:
+                attached.append(child)
+            original_set_child(layout_id, child)
+
+        view.getChildView = hide_attached_child
+        view.setChildView = record_child
+        with self.assertRaises(RuntimeError):
+            self.mod._attach_injection(view)
+        self.assertEqual(view.children, {})
+        self.assertTrue(attached[0].destroyed)
+        self.assertNotIn(view, self.mod._injected_views)
 
 
 if __name__ == '__main__':

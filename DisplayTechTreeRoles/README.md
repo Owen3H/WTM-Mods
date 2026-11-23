@@ -30,3 +30,5 @@ DTTR requires OpenWG Gameface 1.2.2 and a **World of Tanks** client with native 
 The injected renderer uses vehicle IDs and the tech-tree DOM structure, both of which should be checked after client updates. It observes native rerenders and releases its model callbacks, icons, and observer when the carrier is removed; the page-level listener remains until unload so a carrier can be reattached.
 
 The Python configuration is in `src/displaytechtreeroles/config.py`, and game assets are in `src/res`. The internal mod name also determines the resource paths and injection feature name; changing it requires matching changes to the packaged resource declaration, asset directory, and JavaScript feature name.
+
+To learn more about view-injection and hooking, visit the [modding documentation](https://modding.wot-tools.dev).

@@ -20,6 +20,16 @@
     let removedSubscribed = false;
     let dataSubscribed = false;
 
+    function cleanup(action, message) {
+        try {
+            action();
+            return true;
+        } catch (error) {
+            console.error('[DisplayTechTreeRoles] ' + message, error);
+            return false;
+        }
+    }
+
     function removeIcons() {
         if (!root) return;
         root.querySelectorAll('.' + iconClass).forEach(function (icon) {
@@ -29,23 +39,28 @@
 
     function disconnectView() {
         generation += 1;
-        if (retry !== null) clearTimeout(retry);
+        if (retry !== null) cleanup(function () { clearTimeout(retry); }, 'Could not clear root retry');
         retry = null;
-        if (observer) observer.disconnect();
+        if (observer) cleanup(function () { observer.disconnect(); }, 'Could not disconnect tech tree observer');
         observer = null;
-        if (frame !== null) cancelAnimationFrame(frame);
+        if (frame !== null) cleanup(function () { cancelAnimationFrame(frame); }, 'Could not cancel pending render');
         frame = null;
-        removeIcons();
+        cleanup(removeIcons, 'Could not remove role icons');
         root = null;
         roles = {};
         if (callbackId !== null) {
-            viewEnv.removeDataChangedCallback(callbackId, resourceId);
+            const id = callbackId;
+            const owner = resourceId;
             callbackId = null;
+            cleanup(function () { viewEnv.removeDataChangedCallback(id, owner); },
+                'Could not remove model callback');
         }
-        if (removedSubscribed) engine.off('subViews.onRemoved', onSubViewRemoved);
-        if (dataSubscribed) engine.off('viewEnv.onDataChanged', onDataChanged);
-        removedSubscribed = false;
-        dataSubscribed = false;
+        if (removedSubscribed && cleanup(function () {
+            engine.off('subViews.onRemoved', onSubViewRemoved);
+        }, 'Could not unsubscribe from subview removals')) removedSubscribed = false;
+        if (dataSubscribed && cleanup(function () {
+            engine.off('viewEnv.onDataChanged', onDataChanged);
+        }, 'Could not unsubscribe from model changes')) dataSubscribed = false;
         resourceId = null;
     }
 
@@ -164,10 +179,14 @@
             if (!model || !model.ModInjectModel || model.ModInjectModel.name !== feature) return;
             resourceId = id;
             try {
-                engine.on('subViews.onRemoved', onSubViewRemoved);
-                removedSubscribed = true;
-                engine.on('viewEnv.onDataChanged', onDataChanged);
-                dataSubscribed = true;
+                if (!removedSubscribed) {
+                    removedSubscribed = true;
+                    engine.on('subViews.onRemoved', onSubViewRemoved);
+                }
+                if (!dataSubscribed) {
+                    dataSubscribed = true;
+                    engine.on('viewEnv.onDataChanged', onDataChanged);
+                }
                 callbackId = viewEnv.addDataChangedCallback('model', id, true);
                 rootAttempts = 0;
                 readPayload();
@@ -213,10 +232,16 @@
     function dispose() {
         if (!alive) return;
         alive = false;
-        if (addedSubscribed) engine.off('subViews.onAdded', onSubViewAdded);
-        window.removeEventListener('unload', dispose);
-        disconnectView();
-        delete window[singleton];
+        if (addedSubscribed && cleanup(function () {
+            engine.off('subViews.onAdded', onSubViewAdded);
+        }, 'Could not unsubscribe from subview additions')) addedSubscribed = false;
+        cleanup(function () { window.removeEventListener('unload', dispose); },
+            'Could not remove unload listener');
+        try {
+            disconnectView();
+        } finally {
+            if (!addedSubscribed) delete window[singleton];
+        }
     }
 
     window[singleton] = true;
@@ -224,8 +249,8 @@
     engine.whenReady.then(function () {
         if (!alive) return;
         // The helper retains injected scripts after a child is detached.
-        engine.on('subViews.onAdded', onSubViewAdded);
         addedSubscribed = true;
+        engine.on('subViews.onAdded', onSubViewAdded);
         onSubViewAdded();
     }).catch(function (error) {
         console.error('[DisplayTechTreeRoles] Gameface startup failed', error);

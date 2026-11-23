@@ -50,6 +50,8 @@ function fixture(initialPresent = true, initialRootPresent = true) {
     let disconnected = false
     let rootPresent = initialRootPresent
     let observerOptions: object | undefined
+    let failCallbackRemoval = false
+    let failOffName: string | null = null
     const errors: unknown[][] = []
     const model = { ModInjectModel: { name: "WTMDisplayTechTreeRoles" }, payload: "{}" }
     let present = initialPresent
@@ -61,13 +63,22 @@ function fixture(initialPresent = true, initialRootPresent = true) {
     const engine = {
         whenReady: Promise.resolve(),
         on: (name: string, fn: Function) => handlers.set(name, fn),
-        off: (name: string, fn: Function) => { if (handlers.get(name) === fn) handlers.delete(name) },
+        off: (name: string, fn: Function) => {
+            if (failOffName === name) throw new Error("unsubscribe failed")
+            if (handlers.get(name) === fn) handlers.delete(name)
+        },
     }
     const removed: number[] = []
     const context = {
         window, engine, console: { error: (...args: unknown[]) => errors.push(args) },
         document: { querySelector: () => rootPresent ? root : null, createElement: () => new Element() },
-        viewEnv: { addDataChangedCallback: () => 10, removeDataChangedCallback: (id: number) => removed.push(id) },
+        viewEnv: {
+            addDataChangedCallback: () => 10,
+            removeDataChangedCallback: (id: number) => {
+                if (failCallbackRemoval) throw new Error("callback removal failed")
+                removed.push(id)
+            },
+        },
         MutationObserver: class {
             constructor(fn: Function) { mutation = fn }
             observe(_: Element, options: object) { observerOptions = options }
@@ -94,6 +105,9 @@ function fixture(initialPresent = true, initialRootPresent = true) {
     return { root, container, image, model, handlers, removed, errors, flush, change,
         mutate: () => mutation([{}]), removeCarrier: () => { present = false; handlers.get("subViews.onRemoved")!([5]) },
         addCarrier: () => { present = true; handlers.get("subViews.onAdded")!([5]) },
+        failCallbackRemoval: (value: boolean) => { failCallbackRemoval = value },
+        failOff: (name: string | null) => { failOffName = name },
+        window,
         isDisconnected: () => disconnected, observerOptions: () => observerOptions,
         setRootPresent: (value: boolean) => { rootPresent = value },
         runTimeout: () => { const [id, callback] = timeouts.entries().next().value!; timeouts.delete(id); callback() },
@@ -161,6 +175,23 @@ describe("injected tech-tree renderer", () => {
         expect(f.handlers.has("viewEnv.onDataChanged")).toBe(false)
     })
 
+    test("continues carrier cleanup when callback removal fails", async () => {
+        const f = fixture()
+        await Promise.resolve()
+        f.change({ "42": { roleIcon: "img://icon.png", roleIconSize: 24, roleIconMargin: 0, roleIconPosition: "bottom" } })
+        f.failCallbackRemoval(true)
+        f.removeCarrier()
+        expect(f.container.querySelector(".wtm-display-tech-tree-role")).toBeNull()
+        expect(f.handlers.has("subViews.onRemoved")).toBe(false)
+        expect(f.handlers.has("viewEnv.onDataChanged")).toBe(false)
+        expect(f.errors).toHaveLength(1)
+
+        f.failCallbackRemoval(false)
+        f.addCarrier()
+        f.flush()
+        expect(f.container.querySelector(".wtm-display-tech-tree-role")).not.toBeNull()
+    })
+
     test("handles recycled vehicle identity and removes orphan icons", async () => {
         const f = fixture()
         await Promise.resolve()
@@ -216,6 +247,17 @@ describe("injected tech-tree renderer", () => {
         expect(f.handlers.has("viewEnv.onDataChanged")).toBe(false)
         f.handlers.get("unload")!()
         expect(f.handlers.size).toBe(0)
+    })
+
+    test("finishes disposal after page listener removal fails", async () => {
+        const f = fixture()
+        await Promise.resolve()
+        f.failOff("subViews.onAdded")
+        f.handlers.get("unload")!()
+        expect(f.errors).toHaveLength(1)
+        expect(f.handlers.has("unload")).toBe(false)
+        expect(f.handlers.has("viewEnv.onDataChanged")).toBe(false)
+        expect(Object.prototype.hasOwnProperty.call(f.window, "__wtmDisplayTechTreeRoles")).toBe(true)
     })
 })
 
