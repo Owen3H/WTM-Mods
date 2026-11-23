@@ -86,7 +86,7 @@ class HookTests(unittest.TestCase):
         self.add_module('gui', package=True)
         self.add_module('gui.mods', package=True)
         mod_package = self.add_module('gui.mods.displaytechtreeroles', package=True)
-        mod_package.__path__ = [os.path.join(ROOT, 'src', 'displaytechtreeroles')]
+        setattr(mod_package, '__path__', [os.path.join(ROOT, 'src', 'displaytechtreeroles')])
         name = 'gui.mods.displaytechtreeroles.config'
         self.previous_modules[name] = sys.modules.pop(name, None)
         impl = self.add_module('gui.impl', package=True)
@@ -104,15 +104,16 @@ class HookTests(unittest.TestCase):
         icons = type('Icons', (object,), {'roleExp': type('RoleExp', (object,), {'roles': roles})()})()
         maps = type('Maps', (object,), {'icons': icons})()
         gui = type('Gui', (object,), {'maps': maps})()
-        gen.R = type('Resources', (object,), {'images': type('Images', (object,), {'gui': gui})()})()
+        resources = type('Resources', (object,), {'images': type('Images', (object,), {'gui': gui})()})()
         layout = type('Injection', (object,), {'Injection': staticmethod(lambda: 123)})()
-        gen.R.mods = type('Mods', (object,), {
+        setattr(resources, 'mods', type('Mods', (object,), {
             'wtm': type('Vendor', (object,), {
                 'DisplayTechTreeRoles': type('Feature', (object,), {'views': layout})()
             })()
-        })()
-        impl.backport = type('Backport', (object,), {'image': staticmethod(lambda resource: resource)})()
-        path.normalizeGfImagePath = lambda resource: 'img://%s/%s' % resource
+        })())
+        setattr(gen, 'R', resources)
+        setattr(impl, 'backport', type('Backport', (object,), {'image': staticmethod(lambda resource: resource)})())
+        setattr(path, 'normalizeGfImagePath', lambda resource: 'img://%s/%s' % resource)
 
         self.add_module('frameworks', package=True)
         wulf = self.add_module('frameworks.wulf')
@@ -148,10 +149,10 @@ class HookTests(unittest.TestCase):
             def destroy(self):
                 self.destroyed = True
 
-        wulf.ViewModel = ViewModel
-        pub.ViewComponent = ViewComponent
-        injection.gf_mod_inject = lambda model, name, **kwargs: model._addViewModelProperty(
-            'ModInjectModel', (name, kwargs))
+        setattr(wulf, 'ViewModel', ViewModel)
+        setattr(pub, 'ViewComponent', ViewComponent)
+        setattr(injection, 'gf_mod_inject', lambda model, name, **kwargs: model._addViewModelProperty(
+            'ModInjectModel', (name, kwargs)))
 
         class Dumper(object):
             def _getTechTreeNodes(self, node, nodeRows):
@@ -191,14 +192,14 @@ class HookTests(unittest.TestCase):
             def redraw(self):
                 self.redraws += 1
 
-        view._NationTreeViewDumper = Dumper
-        view.TechTreeView = TechTreeView
+        setattr(view, '_NationTreeViewDumper', Dumper)
+        setattr(view, 'TechTreeView', TechTreeView)
         self.dumper = Dumper
         self.view_class = TechTreeView
         menu = self.add_module('gui.aslainMenu')
         self.api = SettingsAPI()
-        menu.g_modsSettingsApi = self.api
-        menu.templates = Templates
+        setattr(menu, 'g_modsSettingsApi', self.api)
+        setattr(menu, 'templates', Templates)
         self.mod = imp.load_source('test_displaytechtreeroles',
                                    os.path.join(ROOT, 'src', 'mod_displaytechtreeroles.py'))
 
@@ -206,7 +207,7 @@ class HookTests(unittest.TestCase):
         self.previous_modules[name] = sys.modules.get(name)
         module = types.ModuleType(name)
         if package:
-            module.__path__ = []
+            setattr(module, '__path__', [])
         sys.modules[name] = module
         return module
 
@@ -251,8 +252,8 @@ class HookTests(unittest.TestCase):
             pass
         class InheritedView(self.view_class):
             pass
-        module._NationTreeViewDumper = InheritedDumper
-        module.TechTreeView = InheritedView
+        setattr(module, '_NationTreeViewDumper', InheritedDumper)
+        setattr(module, 'TechTreeView', InheritedView)
         self.mod.init()
         self.assertIn('roleIcon', InheritedDumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}))
         view = InheritedView()
@@ -298,10 +299,10 @@ class HookTests(unittest.TestCase):
         self.mod.init()
         previous_nodes = self.dumper._getTechTreeNodes
         previous_loading = self.view_class._onLoading
-        def later_nodes(instance, node, rows):
-            return previous_nodes(instance, node, rows)
-        def later_loading(instance):
-            return previous_loading(instance)
+        def later_nodes(self, node, nodeRows):
+            return previous_nodes(self, node, nodeRows)
+        def later_loading(self):
+            return previous_loading(self)
         self.dumper._getTechTreeNodes = later_nodes
         self.view_class._onLoading = later_loading
         self.mod.fini()
@@ -401,7 +402,7 @@ class HookTests(unittest.TestCase):
         view._onLoaded()
         self.assertIs(view.children[123], child)
         view.nodes.clear()
-        self.assertEqual(view._TechTreeView__fullUpdateOfViewModel(), 'updated')
+        self.assertEqual(getattr(view, '_TechTreeView__fullUpdateOfViewModel')(), 'updated')
         self.assertEqual(json.loads(model.fields[1][1]), {})
         self.assertEqual(view._finalize(), 'finalized')
         self.assertEqual(model.fields[1][1], 'null')
