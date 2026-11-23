@@ -15,7 +15,9 @@ All of my mods for World of Tanks in one repo.
 1. Create a pull request, ideally one for each different feature/concern and clearly describe the intended changes.
 
 ## List of Mods
+A mod may be available on GitHub before WGMods Hub, please check the [releases](../../releases) page.
+
 | Name | Description | Latest Version |
 | --- | --- | --- |
 | [View Range Customizer](ViewRangeCustomizer/) | Customize minimap view range circles and add up to three additional circles. | [v1.0.1](https://wgmods.net/8184) |
-| [Display Tech Tree Roles](DisplayTechTreeRoles/) | Displays vehicle roles above tank icons in the tech tree. | v1.0.0 (Unreleased) |
+| [Display Tech Tree Roles](DisplayTechTreeRoles/) | Displays vehicle roles above tank icons in the tech tree. | v1.0.0-beta.1 |
