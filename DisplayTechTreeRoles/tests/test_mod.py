@@ -224,12 +224,15 @@ class HookTests(unittest.TestCase):
         self.mod.init()
         self.mod.init()
         dumper = self.dumper()
+        defaults = self.mod.config.DEFAULT_SETTINGS
         self.assertEqual(dumper._getTechTreeNodes(VehicleNode('role_HT_break'), {}),
                          {'original': {}, 'roleIcon': 'img://24x24/role_HT_break',
-                          'roleIconSize': 24, 'roleIconMargin': -18, 'roleIconPosition': 'bottom'})
+                          'roleIconSize': defaults['icon_size'], 'roleIconMargin': defaults['margin'],
+                          'roleIconPosition': 'bottom'})
         self.assertEqual(dumper._getTechTreeNodes(VehicleNode('role_SPG'), {}),
                          {'original': {}, 'roleIcon': 'img://32x32/role_SPG',
-                          'roleIconSize': 24, 'roleIconMargin': -18, 'roleIconPosition': 'bottom'})
+                          'roleIconSize': defaults['icon_size'], 'roleIconMargin': defaults['margin'],
+                          'roleIconPosition': 'bottom'})
         self.assertEqual(dumper._getTechTreeNodes(VehicleNode('NotDefined'), {}),
                          {'original': {}})
         self.mod.fini()
@@ -368,8 +371,8 @@ class HookTests(unittest.TestCase):
         del sys.modules['gui.aslainMenu']
         self.mod.init()
         data = self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {})
-        self.assertEqual(data['roleIconSize'], 24)
-        self.assertEqual(data['roleIconMargin'], -18)
+        self.assertEqual(data['roleIconSize'], self.mod.config.DEFAULT_SETTINGS['icon_size'])
+        self.assertEqual(data['roleIconMargin'], self.mod.config.DEFAULT_SETTINGS['margin'])
         self.assertEqual(data['roleIconPosition'], 'bottom')
         self.assertFalse(self.mod._settings_registered)
 
