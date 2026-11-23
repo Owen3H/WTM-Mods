@@ -1,0 +1,11 @@
+[
+  {
+    "type": "Layout",
+    "id": "R.mods.wtm.DisplayTechTreeRoles.views.Injection",
+    "path": "coui://gui/gameface/mods/wtm/DisplayTechTreeRoles/injection.html",
+    "parameters": {
+      "entrance": "WTMDisplayTechTreeRoles",
+      "impl": "gameface"
+    }
+  }
+]

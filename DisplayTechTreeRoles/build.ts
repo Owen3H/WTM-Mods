@@ -1,20 +1,9 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { basename, dirname, join, relative } from "node:path"
 import { spawn } from "node:child_process"
 
-// This is probably going to be temporary, as patching the game bundle directly is fragile and 
-// probably not the best long-term solution if the game updates its bundle structure.
-// TODO: Remove in favour of a more robust modding approach that does not rely on direct bundle patching.
-type BundlePatch = {
-    resourcePath: string
-    componentMarker: string
-    contentMarker: string
-    insertion: string
-}
-
 type BuildConfig = {
     pythonArchiveRoot: string
-    bundlePatch: BundlePatch | null
     openResModsFolder: boolean
     test: { kind: "commands"; commands: { program: string; args: string[] }[] } | { kind: "launch" }
 }
@@ -22,6 +11,7 @@ type BuildConfig = {
 const PROJECT_DIR = import.meta.dir
 const DIST_DIR = join(PROJECT_DIR, "dist")
 const SOURCE_DIR = join(PROJECT_DIR, "src")
+const RESOURCES_DIR = join(SOURCE_DIR, "res")
 const WOT_SRC_DIR = join(PROJECT_DIR, "..", "wot-src")
 const VERSION_FILE = join(WOT_SRC_DIR, "sources", "version.xml")
 const versionMatch = readFileSync(VERSION_FILE, "utf8").match(/<version>\s*v\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\s+/)
@@ -32,29 +22,8 @@ if (!GAME_DIR) throw new Error("WOT_GAME_DIR variable is not set in .env file or
 const PACKAGED_MODS_DIR = process.env.WOT_PACKAGED_MODS_DIR || join(GAME_DIR, "mods", GAME_VER)
 const META_FILE = join(PROJECT_DIR, "meta.xml")
 
-export const NODE_COMPONENT = 'ni=(0,F.memo)(function e(i){const{name:r,techName:a,id:o,'
-export const NODE_CONTENT = 'children:[(0,ue.jsx)("div",{className:Ze.hover}),(0,ue.jsx)("div",{className:Ze.image,'
-export const ROLE_ICON = [
-    'i.roleIcon&&(0,ue.jsx)("div",{"data-test-id":o+"-role-icon",',
-    'style:{position:"absolute",left:"50%",',
-    'top:i.roleIconPosition==="bottom"?"100%":"auto",',
-    'bottom:i.roleIconPosition==="bottom"?"auto":"100%",',
-    'marginTop:i.roleIconPosition==="bottom"?`${i.roleIconMargin}px`:0,',
-    'marginBottom:i.roleIconPosition==="bottom"?0:`${i.roleIconMargin}px`,',
-    'width:`${i.roleIconSize}px`,height:`${i.roleIconSize}px`,',
-    'transform:"translateX(-50%)",backgroundImage:`url("${i.roleIcon}")`,',
-    'backgroundSize:"contain",backgroundRepeat:"no-repeat",',
-    'backgroundPosition:"center",pointerEvents:"none",zIndex:2}}),',
-].join("")
-
 const BUILD_CONFIG: BuildConfig = {
     pythonArchiveRoot: "res/scripts/client/gui/mods",
-    bundlePatch: {
-        resourcePath: "gui/gameface/_dist/production/mono/tech_tree/main/bundle.js",
-        componentMarker: NODE_COMPONENT,
-        contentMarker: NODE_CONTENT,
-        insertion: ROLE_ICON,
-    },
     openResModsFolder: true,
     test: { kind: "launch" },
 }
@@ -77,19 +46,6 @@ const PYTHON_COMPILE_SCRIPT = [
     "    finally: os.remove(temp.name)",
     "else:",
     "    py_compile.compile(source_path, cfile=output_path, dfile=source_path, doraise=True)",
-]
-
-const READ_BUNDLE_SCRIPT = [
-    "import os, sys, zipfile, msvcrt",
-    "packages_dir, bundle_path = sys.argv[1:3]",
-    "matches = []",
-    "for name in sorted(os.listdir(packages_dir)):",
-    "    if name.startswith('gui-part') and name.endswith('.pkg'):",
-    "        with zipfile.ZipFile(os.path.join(packages_dir, name), 'r') as package:",
-    "            if bundle_path in package.namelist(): matches.append(package.read(bundle_path))",
-    "if len(matches) != 1: raise ValueError('Expected exactly one game bundle, found %d' % len(matches))",
-    "msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)",
-    "sys.stdout.write(matches[0])",
 ]
 
 export const PACKAGE_SCRIPT = [
@@ -124,19 +80,6 @@ function discoverPythonModules(): CompiledModule[] {
             archivePath: BUILD_CONFIG.pythonArchiveRoot + "/" + output.replace(/\\/g, "/"),
         }
     })
-}
-
-export function patchBundle(bundle: string): string {
-    const patch = BUILD_CONFIG.bundlePatch
-    if (!patch) throw new Error("No game bundle patch is configured")
-    if (bundle.split(patch.componentMarker).length !== 2 ||
-        bundle.split(patch.contentMarker).length !== 2) {
-        throw new Error("Unsupported game renderer; expected markers were not found exactly once")
-    }
-    return bundle.replace(
-        patch.contentMarker,
-        patch.contentMarker.replace("children:[", "children:[" + patch.insertion),
-    )
 }
 
 function runPython(script: string[], args: string[], stdout: "inherit" | "pipe" = "inherit"): Uint8Array | undefined {
@@ -181,19 +124,17 @@ function packageMod(): string {
         archivePath: module.archivePath,
     }))
 
-    if (BUILD_CONFIG.bundlePatch) {
-        const bundlePath = BUILD_CONFIG.bundlePatch.resourcePath
-        const bundleBytes = runPython(READ_BUNDLE_SCRIPT, [
-            join(GAME_DIR!, "res", "packages"),
-            bundlePath,
-        ], "pipe")
-        if (!bundleBytes) throw new Error("The game bundle reader returned no data.")
-        const bundle = patchBundle(new TextDecoder("utf-8", { fatal: true }).decode(bundleBytes))
-        const patchedBundle = join(DIST_DIR, "patched", basename(bundlePath))
-        mkdirSync(dirname(patchedBundle), { recursive: true })
-        writeFileSync(patchedBundle, bundle, "utf8")
-        files.push({ source: patchedBundle, archivePath: "res/" + bundlePath })
+    const addResources = (directory: string): void => {
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+            const path = join(directory, entry.name)
+            if (entry.isDirectory()) addResources(path)
+            else if (entry.isFile()) files.push({
+                source: path,
+                archivePath: "res/" + relative(RESOURCES_DIR, path).replace(/\\/g, "/"),
+            })
+        }
     }
+    addResources(RESOURCES_DIR)
 
     const args = [META_FILE, output]
     for (const file of files) args.push(file.source, file.archivePath)
@@ -210,8 +151,7 @@ function copyPackageToMods(packagePath: string): void {
 }
 
 function getResModsDir(): string {
-    return process.env.WOT_MODS_DIR ||
-        join(GAME_DIR!, "res_mods", GAME_VER, "scripts", "client", "gui", "mods")
+    return process.env.WOT_MODS_DIR || join(GAME_DIR!, "res_mods", GAME_VER, "scripts", "client", "gui", "mods")
 }
 
 function copyToResMods(): void {
@@ -260,7 +200,8 @@ function runTests(): void {
         return
     }
     compile()
-    copyToResMods()
+    copyPackageToMods(packageMod())
+    removeResModsCopies()
     launchGame()
 }
 
