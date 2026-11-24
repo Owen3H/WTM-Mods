@@ -8,10 +8,10 @@ MOD_VERSION = None # Replaced at build time with version from meta.xml
 FEATURE_NAME = 'WTM' + MOD_NAME
 SCRIPT_URL = 'coui://gui/gameface/mods/wtm/' + MOD_NAME + '/roles.js'
 
-DEFAULT_SETTINGS = {'enabled': True, 'icon_size': 26, 'margin': -12, 'position': 1}
+DEFAULT_SETTINGS = {'enabled': True, 'icon_size': 25, 'margin': -15, 'position': 1}
 SETTINGS = dict(DEFAULT_SETTINGS)
 MARGIN_MIN = -24
-MARGIN_MAX = 8
+MARGIN_MAX = -12
 
 try:
     _NUMBER_TYPES = (int, long, float)  # type: ignore
