@@ -1,10 +1,13 @@
+import logging
+
 from gui.Scaleform.daapi.view.battle.shared.minimap.component import MinimapComponent
 from gui.mods.viewrangecustomizer import config, markerplugin  # pyright: ignore[reportMissingImports]
 
+_logger = logging.getLogger(__name__)
 _settings_registered = False
 _settings_api = None
 _reset_hooked = {}
-_setup_hook_state = None
+_hooks = {}
 
 def _get_settings_api():
     try:
@@ -28,7 +31,6 @@ def _update_settings_template(api):
         reload_template(config.MOD_ID, template)
     else:
         print(config.TAG + 'Aslain\'s Mod Menu was unable to reload the updated template')
-
 
 def _on_settings_changed(linkage, values):
     """Called when the settings are changed in the Mod Settings menu."""
@@ -92,9 +94,9 @@ def _register_reset_callback(api):
     if not hasattr(api, 'onResetMod'):
         print(config.TAG + 'Aslain\'s Mod Menu cannot register the reset callback')
         return
+    _reset_hooked[id(api)] = api
     try:
         api.onResetMod += _on_settings_reset
-        _reset_hooked[id(api)] = api
     except Exception as error:
         print(config.TAG + 'Could not register reset callback: ' + str(error))
 
@@ -123,9 +125,11 @@ def _register_settings():
         print(config.TAG + 'Aslain\'s Mod Menu was unable to register this settings template')
         return
 
+    _settings_api = api
     registered_settings = set_template(config.MOD_ID, settings_template, _on_settings_changed)
     if not isinstance(registered_settings, dict):
         print(config.TAG + 'Aslain\'s Mod Menu did not return registered settings')
+        _unregister_settings()
         return
 
     if isinstance(saved_settings, dict):
@@ -177,61 +181,84 @@ def _unregister_settings():
     _settings_registered = False
     _settings_api = None
 
-def _make_setup_plugins(previous_setup_plugins):
-    """Create a wrapper that preserves WoT's and earlier mods' plugin setup."""
-    def setup_plugins(self, arenaVisitor):
-        """Add this mod's plugin without replacing WoT's existing plugins."""
-        plugins = previous_setup_plugins(self, arenaVisitor)
-        personal_plugin_class = plugins.get('personal') # Get the built-in plugin class that controls minimap circles
-        if personal_plugin_class is not None:
-            markerplugin.install_native_circle_commands_hook(personal_plugin_class)
-        else:
-            print(config.TAG + 'Built-in minimap circle plugin was not found')
-        plugins[config.MOD_ID] = markerplugin.CustomCirclesPlugin
-        return plugins
-    return setup_plugins
+def _setup_plugins(plugins):
+    """Add this mod's plugin without replacing WoT's existing plugins."""
+    personal_plugin_class = plugins.get('personal') # Get the built-in plugin class that controls minimap circles
+    if personal_plugin_class is not None:
+        markerplugin.install_native_circle_commands_hook(personal_plugin_class)
+    else:
+        print(config.TAG + 'Built-in minimap circle plugin was not found')
+    plugins[config.MOD_ID] = markerplugin.CustomCirclesPlugin
 
-def _install_setup_plugins_hook():
-    """Wrap WoT's minimap factory and remember exactly what must be restored.
+def _install_hook(owner, method_name, after):
+    """Wrap a method and remember its raw class attribute for restoration.
 
-    WoT calls this instance method when it creates minimap plugins. Keep its
-    resolved method for delegation, but save the raw class attribute because
     Python 2.7 returns an unbound method from normal class lookup.
     """
-    global _setup_hook_state
+    key = (owner, method_name)
+    if key in _hooks:
+        return
 
-    if _setup_hook_state is None:
-        class_attrs = MinimapComponent.__dict__
-        defined_here = '_setupPlugins' in class_attrs
-        original_descriptor = class_attrs.get('_setupPlugins')
-        setup_plugins = _make_setup_plugins(getattr(MinimapComponent, '_setupPlugins'))
-        MinimapComponent._setupPlugins = setup_plugins
-        _setup_hook_state = (defined_here, original_descriptor, setup_plugins)
+    previous = getattr(owner, method_name)
+    if getattr(previous, '_viewrangecustomizer_hook_owner', False):
+        return
 
-def _restore_setup_plugins_hook():
-    """Undo our WoT hook only if it is still installed.
+    class_attrs = owner.__dict__
+    defined_here = method_name in class_attrs
+    original_descriptor = class_attrs.get(method_name)
+    active = [True]
 
-    Restore the raw class attribute when WoT defined it here. If it was
+    def wrapper(self, *args, **kwargs):
+        result = previous(self, *args, **kwargs)
+        if active[0]:
+            try:
+                after(result)
+            except Exception:
+                _logger.exception(config.TAG + 'Hook extension failed for ' + method_name)
+        return result
+
+    setattr(wrapper, '_viewrangecustomizer_hook_owner', True)
+    setattr(owner, method_name, wrapper)
+    _hooks[key] = (defined_here, original_descriptor, wrapper, active)
+
+def _restore_hook(owner, method_name):
+    """Undo our hook only if it is still installed.
+
+    Restore the raw class attribute when the owner defined it. If it was
     inherited, delete our temporary override so normal inheritance resumes.
     """
-    global _setup_hook_state
-
-    state = _setup_hook_state
-    try:
-        if state is not None:
-            defined_here, original_descriptor, wrapper = state
-            if MinimapComponent.__dict__.get('_setupPlugins') is wrapper:
-                if defined_here:
-                    setattr(MinimapComponent, '_setupPlugins', original_descriptor)
-                else:
-                    del MinimapComponent._setupPlugins
-    finally:
-        _setup_hook_state = None
+    state = _hooks.pop((owner, method_name), None)
+    if state is not None:
+        defined_here, original_descriptor, wrapper, active = state
+        active[0] = False
+        if owner.__dict__.get(method_name) is wrapper:
+            if defined_here:
+                setattr(owner, method_name, original_descriptor)
+            else:
+                delattr(owner, method_name)
 
 def init():
     """Register settings and install this mod's WoT minimap hook."""
-    _register_settings()
-    _install_setup_plugins_hook()
+    try:
+        previous_settings = dict(config.SETTINGS)
+        try:
+            _register_settings()
+        except Exception:
+            _logger.exception(config.TAG + 'Could not register settings; using previous settings')
+            try:
+                _unregister_settings()
+            except Exception:
+                _logger.exception(config.TAG + 'Could not clean up failed settings registration')
+            config.SETTINGS.clear()
+            config.SETTINGS.update(previous_settings)
+        _install_hook(MinimapComponent, '_setupPlugins', _setup_plugins)
+    except Exception:
+        try:
+            _logger.exception(config.TAG + 'Failed to initialize mod.')
+            fini()
+        except Exception as error:
+            print(config.TAG + 'Could not clean up after initialization failure: ' + str(error))
+        raise
 
 def fini():
     """Unregister settings and restore only the minimap hooks we still own."""
@@ -239,6 +266,6 @@ def fini():
         _unregister_settings()
     finally:
         try:
-            _restore_setup_plugins_hook()
+            _restore_hook(MinimapComponent, '_setupPlugins')
         finally:
             markerplugin.restore_native_circle_commands_hooks()
