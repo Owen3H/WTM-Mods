@@ -1,6 +1,9 @@
 {
   "name": "wtm-mods",
   "private": true,
+  "scripts": {
+    "update:wot-src": "bun -e \"const { existsSync } = require('node:fs'); const dir = 'wot-src'; const args = existsSync(dir) ? ['-C', dir, 'pull', '--ff-only'] : ['clone', '--branch', 'EU', '--single-branch', 'https://github.com/izeberg/wot-src.git', dir]; const result = Bun.spawnSync(['git', ...args], { stdout: 'inherit', stderr: 'inherit' }); process.exitCode = result.exitCode;\""
+  },
   "workspaces": [
     "ViewRangeCustomizer",
     "DisplayTechTreeRoles"
