@@ -3,30 +3,32 @@ import { basename, dirname, join, relative } from "node:path"
 import { spawn } from "node:child_process"
 
 type BuildConfig = {
+    gameVersion: string
     pythonArchiveRoot: string
     openResModsFolder: boolean
     test: { kind: "commands"; commands: { program: string; args: string[] }[] } | { kind: "launch" }
 }
 
 const PROJECT_DIR = import.meta.dir
+const META_FILE = join(PROJECT_DIR, "meta.xml")
 const DIST_DIR = join(PROJECT_DIR, "dist")
 const SOURCE_DIR = join(PROJECT_DIR, "src")
 const RESOURCES_DIR = join(SOURCE_DIR, "res")
-const WOT_SRC_DIR = join(PROJECT_DIR, "..", "wot-src")
-const VERSION_FILE = join(WOT_SRC_DIR, "sources", "version.xml")
-const versionMatch = readFileSync(VERSION_FILE, "utf8").match(/<version>\s*v\.([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\s+/)
-if (!versionMatch) throw new Error(`Could not determine World of Tanks version from ${VERSION_FILE}`)
-const GAME_VER = versionMatch[1]
-const GAME_DIR = process.env.WOT_GAME_DIR
-if (!GAME_DIR) throw new Error("WOT_GAME_DIR variable is not set in .env file or system environment.")
-const PACKAGED_MODS_DIR = process.env.WOT_PACKAGED_MODS_DIR || join(GAME_DIR, "mods", GAME_VER)
-const META_FILE = join(PROJECT_DIR, "meta.xml")
 
 const BUILD_CONFIG: BuildConfig = {
+    gameVersion: "2.4.2.0",
     pythonArchiveRoot: "res/scripts/client/gui/mods",
     openResModsFolder: true,
     test: { kind: "launch" },
 }
+
+if (!/^\d+\.\d+\.\d+\.\d+$/.test(BUILD_CONFIG.gameVersion)) {
+    throw new Error("gameVersion must be a four-part version, e.g. 2.4.1.1")
+}
+const GAME_VER = BUILD_CONFIG.gameVersion
+const GAME_DIR = process.env.WOT_GAME_DIR
+if (!GAME_DIR) throw new Error("WOT_GAME_DIR variable is not set in .env file or system environment.")
+const PACKAGED_MODS_DIR = process.env.WOT_PACKAGED_MODS_DIR || join(GAME_DIR, "mods", GAME_VER)
 
 const PYTHON_COMPILE_SCRIPT = [
     "import os, py_compile, sys, tempfile, xml.etree.ElementTree as ET",

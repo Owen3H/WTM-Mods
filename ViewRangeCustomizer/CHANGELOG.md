@@ -2,7 +2,7 @@
 - Refactored minimap setup hooks to use a shared hook registry. Hooks retained by another mod after shutdown now pass through to the previous method without applying our changes.
 - Fixed exceptions during replacement drawing or removal blocking WoT's circle commands. v1.0.1 already fell back to WoT when a replacement was unavailable, but not when an exception occurred.
 - Failed replacement-circle draws and incomplete setup can now be retried.
-- If a custom circle cannot be removed, the mod tries to hide it instead. A failure no longer stops it from trying to remove the other circles.
+- When a replacement-circle removal command fails, the mod now tries to hide it instead.
 - Settings registration failures are logged, cleanup is attempted, and the previous settings are restored. Plugin shutdown also attempts both event unsubscriptions if either one fails.
 
 # v1.0.1

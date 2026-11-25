@@ -14,6 +14,8 @@ All of my mods for World of Tanks in one repo.
 1. After editing code, run `bun run test` which will automatically compile and open World of Tanks to test the mod.
 1. Create a pull request, ideally one for each different feature/concern and clearly describe the intended changes.
 
+Each mod's build script sets its target WoT version in `BUILD_CONFIG.gameVersion`. Update it independently for each mod; the version determines the package name and default `mods` and `res_mods` destinations. Make sure `wot-src` and the game installation match the target when developing and testing.
+
 ## List of Mods
 A mod may be available on GitHub before WGMods Hub, please check the [releases](../../releases) page.
 
