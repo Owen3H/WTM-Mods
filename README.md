@@ -20,4 +20,4 @@ A mod may be available on GitHub before WGMods Hub, please check the [releases](
 | Name | Description | Latest Version |
 | --- | --- | --- |
 | [View Range Customizer](ViewRangeCustomizer/) | Customize minimap view range circles and add up to three additional circles. | [v1.0.1](https://wgmods.net/8184) |
-| [Display Tech Tree Roles](DisplayTechTreeRoles/) | Displays vehicle roles above tank icons in the tech tree. | v1.0.0-beta.1 |
+| [Display Tech Tree Roles](DisplayTechTreeRoles/) | Displays vehicle roles above tank icons in the tech tree. | v1.0.0-beta.2 |
