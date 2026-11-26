@@ -175,6 +175,21 @@ describe("injected tech-tree renderer", () => {
         expect(f.handlers.has("viewEnv.onDataChanged")).toBe(false)
     })
 
+    test("cleans up an active carrier when the page unloads", async () => {
+        const f = fixture()
+        await Promise.resolve()
+        f.change({ "42": { roleIcon: "img://icon.png", roleIconSize: 24, roleIconMargin: 0, roleIconPosition: "bottom" } })
+        f.mutate()
+        expect(f.pendingFrames()).toBe(1)
+        f.handlers.get("unload")!()
+        expect(f.container.querySelector(".wtm-display-tech-tree-role")).toBeNull()
+        expect(f.removed).toEqual([10])
+        expect(f.isDisconnected()).toBe(true)
+        expect(f.pendingFrames()).toBe(0)
+        expect(f.handlers.size).toBe(0)
+        expect(f.errors).toHaveLength(0)
+    })
+
     test("continues carrier cleanup when callback removal fails", async () => {
         const f = fixture()
         await Promise.resolve()

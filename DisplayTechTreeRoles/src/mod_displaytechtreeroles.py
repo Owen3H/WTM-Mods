@@ -1,19 +1,14 @@
-import json
 import logging
 
-from gui.mods.displaytechtreeroles import config  # pyright: ignore[reportMissingImports]
+from gui.mods.displaytechtreeroles import config, injection  # pyright: ignore[reportMissingImports]
 
+_logger = logging.getLogger(__name__)
 _settings_api = None
 _settings_registered = False
 _reset_registered = False
 
-_hooks = {}
-
 _active_views = []
-_injected_views = {}
-
-_logger = logging.getLogger(__name__)
-
+_hooks = {}
 
 def _apply_settings(values, base):
     updated = config.normalize_settings(values, base)
@@ -170,12 +165,6 @@ def _restore_hook(cls, name):
         else:
             delattr(cls, name)
 
-
-def _install_tech_tree_hook():
-    from gui.impl.lobby.tech_tree.tech_tree_view import _NationTreeViewDumper
-    _install_hook(_NationTreeViewDumper, '_getTechTreeNodes', _make_tech_tree_nodes_hook)
-
-
 def _restore_hooks():
     first_error = None
     for cls, name in list(_hooks):
@@ -198,108 +187,13 @@ def _make_view_loading_hook(previous, active):
     return on_loading
 
 
-def _make_view_finalize_hook(previous, active):
-    def finalize(self):
-        if active[0] and self in _active_views:
-            _active_views.remove(self)
-        if active[0]:
-            try:
-                _detach_injection(self)
-            except Exception:
-                _logger.exception(config.TAG + 'Could not detach Gameface injection')
-        return previous(self)
-    return finalize
-
-
-def _role_payload(view):
-    roles = {}
-    for vehicle_id, value in view.viewModel.getTechTreeNodes().items():
-        record = json.loads(value)
-        if 'roleIcon' in record:
-            roles[str(vehicle_id)] = {
-                key: record[key] for key in
-                ('roleIcon', 'roleIconSize', 'roleIconMargin', 'roleIconPosition')
-            }
-    return json.dumps(roles, separators=(',', ':'))
-
-
-def _create_injection(layout_id, payload):
-    from frameworks.wulf import ViewModel
-    from gui.impl.pub.view_component import ViewComponent
-    from openwg_gameface import gf_mod_inject  # pyright: ignore[reportMissingImports]
-
-    class InjectionModel(ViewModel):
-        def __init__(self):
-            super(InjectionModel, self).__init__(properties=2, commands=0)
-
-        def _initialize(self):
-            super(InjectionModel, self)._initialize()
-            gf_mod_inject(self, config.FEATURE_NAME, scripts=[config.SCRIPT_URL])
-            self._addStringProperty('payload', payload)
-
-        def setPayload(self, value):
-            self._setString(1, value)
-
-    return ViewComponent(layoutID=layout_id, model=InjectionModel)
-
-
-def _attach_injection(view):
-    if view in _injected_views:
-        return
-    from gui.impl.gen import R
-    layout_id = getattr(R.mods.wtm, config.MOD_NAME).views.Injection()
-    if layout_id < 0:
-        raise ValueError('Gameface injection layout is not registered')
-    if view.getChildView(layout_id) is not None:
-        raise ValueError('Gameface injection slot is already occupied')
-    child = _create_injection(layout_id, _role_payload(view))
-    try:
-        view.setChildView(layout_id, child)
-        if view.getChildView(layout_id) is not child:
-            raise RuntimeError('Gameface injection child was not attached')
-    except Exception:
-        try:
-            if view.getChildView(layout_id) is child:
-                view.setChildView(layout_id, None)
-        except Exception:
-            _logger.exception(config.TAG + 'Could not roll back Gameface injection')
-        try:
-            child.destroy()
-        except Exception:
-            _logger.exception(config.TAG + 'Could not destroy failed Gameface injection')
-        raise
-    _injected_views[view] = (layout_id, child)
-
-
-def _sync_injected_role_model(view):
-    state = _injected_views.get(view)
-    if state is not None:
-        model = state[1].getViewModel()
-        with model.transaction():
-            model.setPayload(_role_payload(view))
-
-
-def _detach_injection(view):
-    state = _injected_views.pop(view, None)
-    if state is not None:
-        layout_id, child = state
-        if view.getChildView(layout_id) is not child:
-            _logger.warning(config.TAG + 'Gameface injection child is no longer attached')
-            return
-        try:
-            model = child.getViewModel()
-            with model.transaction():
-                model.setPayload('null')
-        finally:
-            view.setChildView(layout_id, None)
-
-
 def _make_view_loaded_hook(previous, active):
+    """Add the mod's extra view after the tech tree has loaded."""
     def on_loaded(self, *args, **kwargs):
         result = previous(self, *args, **kwargs)
         if active[0]:
             try:
-                _attach_injection(self)
+                injection.attach(self)
             except Exception:
                 _logger.exception(config.TAG + 'Could not attach Gameface injection')
         return result
@@ -307,32 +201,59 @@ def _make_view_loaded_hook(previous, active):
 
 
 def _make_view_update_hook(previous, active):
+    """After the game updates the tech tree, send role data to the extra view.
+
+    If sending fails, log the error and return the game's original result.
+    """
     def update(self, *args, **kwargs):
         result = previous(self, *args, **kwargs)
         if active[0]:
             try:
-                _sync_injected_role_model(self)
+                injection.sync_role_model(self)
             except Exception:
                 _logger.exception(config.TAG + 'Could not update Gameface role icons')
         return result
     return update
 
 
+def _make_view_finalize_hook(previous, active):
+    """When the tech tree closes, stop keeping references to it and its extra view.
+
+    Leave removing the extra view as the game's responsibility.
+    """
+    def finalize(self):
+        if active[0]:
+            if self in _active_views:
+                _active_views.remove(self)
+            injection.forget(self)
+        return previous(self)
+    return finalize
+
+
 def _install_view_hooks():
+    """Set up the mod to respond when the tech tree opens, changes, or closes.
+
+    Opening adds the extra view, changes update it, and closing clears the
+    mod's references to the tree.
+    """
+    onloading = ('_onLoading', _make_view_loading_hook)
+    onloaded = ('_onLoaded', _make_view_loaded_hook)
+    onupdate = ('_TechTreeView__fullUpdateOfViewModel', _make_view_update_hook)
+    onfinalize = ('_finalize', _make_view_finalize_hook)
+    
     from gui.impl.lobby.tech_tree.tech_tree_view import TechTreeView
-    for name, make_hook in (('_onLoading', _make_view_loading_hook),
-                            ('_onLoaded', _make_view_loaded_hook),
-                            ('_TechTreeView__fullUpdateOfViewModel', _make_view_update_hook),
-                            ('_finalize', _make_view_finalize_hook)):
+    for name, make_hook in (onloading, onloaded, onupdate, onfinalize): 
         _install_hook(TechTreeView, name, make_hook)
 
 
+def _install_tech_tree_hook():
+    from gui.impl.lobby.tech_tree.tech_tree_view import _NationTreeViewDumper
+    _install_hook(_NationTreeViewDumper, '_getTechTreeNodes', _make_tech_tree_nodes_hook)
+
+
 def _cleanup_views():
-    for view in list(_injected_views):
-        try:
-            _detach_injection(view)
-        except Exception:
-            _logger.exception(config.TAG + 'Could not detach Gameface injection')
+    """When the mod stops or fails to start, try to remove its extra views."""
+    injection.cleanup()
     del _active_views[:]
 
 
@@ -359,6 +280,7 @@ def init():
 
 
 def fini():
+    """When the mod stops or fails to start, clean up its settings, views, and hooks."""
     try:
         _unregister_settings()
     finally:

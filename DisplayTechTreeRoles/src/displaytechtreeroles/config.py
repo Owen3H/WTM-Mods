@@ -8,7 +8,7 @@ MOD_VERSION = None # Replaced at build time with version from meta.xml
 FEATURE_NAME = 'WTM' + MOD_NAME
 SCRIPT_URL = 'coui://gui/gameface/mods/wtm/' + MOD_NAME + '/roles.js'
 
-DEFAULT_SETTINGS = {'enabled': True, 'icon_size': 25, 'margin': -15, 'position': 1}
+DEFAULT_SETTINGS = {'enabled': True, 'icon_size': 28, 'margin': -16, 'position': 1}
 SETTINGS = dict(DEFAULT_SETTINGS)
 MARGIN_MIN = -24
 MARGIN_MAX = -12
@@ -45,8 +45,12 @@ def normalize_settings(values, base):
             normalized['enabled'] = values['enabled']
         else:
             print(TAG + 'Ignoring invalid enabled setting')
-    for key, minimum, maximum in (('icon_size', 8, 64), ('margin', MARGIN_MIN, MARGIN_MAX),
-                                  ('position', 0, 1)):
+
+    sz = ('icon_size', 8, 64)
+    margin = ('margin', MARGIN_MIN, MARGIN_MAX)
+    position = ('position', 0, 1)
+
+    for key, minimum, maximum in (sz, margin, position):
         if key not in values:
             continue
         value = values[key]

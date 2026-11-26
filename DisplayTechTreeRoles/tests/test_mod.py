@@ -87,8 +87,9 @@ class HookTests(unittest.TestCase):
         self.add_module('gui.mods', package=True)
         mod_package = self.add_module('gui.mods.displaytechtreeroles', package=True)
         setattr(mod_package, '__path__', [os.path.join(ROOT, 'src', 'displaytechtreeroles')])
-        name = 'gui.mods.displaytechtreeroles.config'
-        self.previous_modules[name] = sys.modules.pop(name, None)
+        for name in ('gui.mods.displaytechtreeroles.config',
+                     'gui.mods.displaytechtreeroles.injection'):
+            self.previous_modules[name] = sys.modules.pop(name, None)
         impl = self.add_module('gui.impl', package=True)
         gen = self.add_module('gui.impl.gen')
         self.add_module('gui.impl.utils', package=True)
@@ -121,6 +122,11 @@ class HookTests(unittest.TestCase):
         pub = self.add_module('gui.impl.pub.view_component')
         injection = self.add_module('openwg_gameface')
 
+        class ViewStatus(object):
+            LOADED = 3
+            DESTROYING = 4
+            DESTROYED = 5
+
         class ViewModel(object):
             def __init__(self, properties=0, commands=0):
                 self.fields = []
@@ -144,12 +150,17 @@ class HookTests(unittest.TestCase):
             def __init__(self, layoutID, model):
                 self.model = model()
                 self.destroyed = False
+                self.destroy_calls = 0
+                self.viewStatus = ViewStatus.LOADED
             def getViewModel(self):
                 return self.model
             def destroy(self):
+                self.destroy_calls += 1
                 self.destroyed = True
+                self.viewStatus = ViewStatus.DESTROYED
 
         setattr(wulf, 'ViewModel', ViewModel)
+        setattr(wulf, 'ViewStatus', ViewStatus)
         setattr(pub, 'ViewComponent', ViewComponent)
         setattr(injection, 'gf_mod_inject', lambda model, name, **kwargs: model._addViewModelProperty(
             'ModInjectModel', (name, kwargs)))
@@ -164,6 +175,8 @@ class HookTests(unittest.TestCase):
                 self.children = {}
                 self.nodes = {}
                 self.viewModel = self
+                self.proxy = object()
+                self.auto_destroy_child = False
 
             def _onLoading(self):
                 return 'loaded'
@@ -182,7 +195,9 @@ class HookTests(unittest.TestCase):
 
             def setChildView(self, layout_id, child):
                 if child is None:
-                    self.children.pop(layout_id, None)
+                    removed = self.children.pop(layout_id, None)
+                    if self.auto_destroy_child and removed is not None:
+                        removed.destroy()
                 else:
                     self.children[layout_id] = child
 
@@ -408,7 +423,8 @@ class HookTests(unittest.TestCase):
         self.assertEqual(self.mod._active_views, [view])
 
     def test_saved_settings_live_changes_reset_and_cleanup(self):
-        self.api.saved = {'enabled': True, 'icon_size': 36, 'margin': 4, 'position': 1}
+        config = self.mod.config
+        self.api.saved = {'enabled': True, 'icon_size': 36, 'margin': config.MARGIN_MAX, 'position': 1}
         original_loading = self.view_class.__dict__['_onLoading']
         original_finalize = self.view_class.__dict__['_finalize']
         self.mod.init()
@@ -420,13 +436,15 @@ class HookTests(unittest.TestCase):
         self.assertEqual(view._onLoading(), 'loaded')
         data = self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {})
         self.assertEqual((data['roleIconSize'], data['roleIconMargin'], data['roleIconPosition']),
-                         (36, 4, 'bottom'))
+                         (36, config.MARGIN_MAX, 'bottom'))
 
-        self.api.onSettingsChanged.fire(self.mod.config.MOD_ID, {'icon_size': 42, 'margin': -3, 'position': 0})
+        self.api.onSettingsChanged.fire(config.MOD_ID, {
+            'icon_size': 42, 'margin': config.MARGIN_MIN, 'position': 0,
+        })
         self.assertEqual(view.redraws, 1)
         data = self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {})
         self.assertEqual((data['roleIconSize'], data['roleIconMargin'], data['roleIconPosition']),
-                         (42, -3, 'top'))
+                         (42, config.MARGIN_MIN, 'top'))
         self.api.onSettingsChanged.fire(self.mod.config.MOD_ID, {'enabled': False})
         self.assertEqual(self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}),
                          {'original': {}})
@@ -452,14 +470,22 @@ class HookTests(unittest.TestCase):
     def test_margin_range_and_saved_values(self):
         config = self.mod.config
         slider = config.settings_template(Templates)['column1'][1]
-        self.assertEqual((slider['minimum'], slider['maximum']), (-24, 8))
-        for value, expected in ((-32, -24), (-27, -24), (-24, -24), (0, 0), (8, 8), (16, 8), (32, 8)):
+        minimum, maximum = config.MARGIN_MIN, config.MARGIN_MAX
+        self.assertEqual((slider['minimum'], slider['maximum']), (minimum, maximum))
+        cases = [(minimum, minimum), (maximum, maximum),
+                 (config.DEFAULT_SETTINGS['margin'], config.DEFAULT_SETTINGS['margin'])]
+        if -32 <= minimum - 1 <= 32:
+            cases.append((minimum - 1, minimum))
+        if -32 <= maximum + 1 <= 32:
+            cases.append((maximum + 1, maximum))
+        for value, expected in cases:
             self.assertEqual(config.normalize_settings({'margin': value}, config.DEFAULT_SETTINGS)['margin'],
                              expected)
-        self.api.saved = {'margin': -32}
+        saved_margin = minimum - 1 if -32 <= minimum - 1 <= 32 else minimum
+        self.api.saved = {'margin': saved_margin}
         self.mod.init()
-        self.assertEqual(config.SETTINGS['margin'], -24)
-        self.assertEqual(self.api.saved['margin'], -24)
+        self.assertEqual(config.SETTINGS['margin'], minimum)
+        self.assertEqual(self.api.saved['margin'], minimum)
 
     def test_missing_menu_keeps_defaults_and_hooks_work(self):
         del sys.modules['gui.aslainMenu']
@@ -483,7 +509,7 @@ class HookTests(unittest.TestCase):
         with open(script_path) as script_file:
             self.assertIn("const feature = '%s';" % config.FEATURE_NAME, script_file.read())
 
-    def test_injection_attaches_updates_and_detaches(self):
+    def test_injection_attaches_updates_and_leaves_close_to_parent(self):
         self.mod.init()
         view = self.view_class()
         view.nodes[42] = json.dumps(self.dumper()._getTechTreeNodes(VehicleNode('role_HT_break'), {}))
@@ -498,8 +524,31 @@ class HookTests(unittest.TestCase):
         self.assertEqual(getattr(view, '_TechTreeView__fullUpdateOfViewModel')(), 'updated')
         self.assertEqual(json.loads(model.fields[1][1]), {})
         self.assertEqual(view._finalize(), 'finalized')
-        self.assertEqual(model.fields[1][1], 'null')
-        self.assertEqual(view.children, {})
+        self.assertEqual(model.fields[1][1], '{}')
+        self.assertIs(view.children[123], child)
+        self.assertFalse(child.destroyed)
+        self.assertNotIn(view, self.mod.injection._injected_views)
+        self.assertNotIn(view, self.mod._active_views)
+
+    def test_finalize_after_parent_removed_child_does_not_warn(self):
+        self.mod.init()
+        view = self.view_class()
+        view._onLoading()
+        view._onLoaded()
+        del view.children[123]
+        warnings = []
+        original_logger = self.mod._logger
+        logger = type('Logger', (object,), {
+            'warning': lambda self, message: warnings.append(message),
+        })()
+        self.mod._logger = logger
+        try:
+            self.assertEqual(view._finalize(), 'finalized')
+        finally:
+            self.mod._logger = original_logger
+        self.assertEqual(warnings, [])
+        self.assertNotIn(view, self.mod.injection._injected_views)
+        self.assertNotIn(view, self.mod._active_views)
 
     def test_fini_detaches_open_view_without_replacing_other_children(self):
         self.mod.init()
@@ -512,6 +561,17 @@ class HookTests(unittest.TestCase):
         self.mod.fini()
         self.assertEqual(child.model.fields[1][1], 'null')
         self.assertEqual(view.children, {456: other})
+        self.assertEqual(child.destroy_calls, 1)
+
+    def test_fini_does_not_destroy_child_twice(self):
+        self.mod.init()
+        view = self.view_class()
+        view.auto_destroy_child = True
+        view._onLoaded()
+        child = view.children[123]
+        self.mod.fini()
+        self.assertEqual(view.children, {})
+        self.assertEqual(child.destroy_calls, 1)
 
     def test_fini_does_not_detach_replaced_child(self):
         self.mod.init()
@@ -544,10 +604,10 @@ class HookTests(unittest.TestCase):
         view.getChildView = hide_attached_child
         view.setChildView = record_child
         with self.assertRaises(RuntimeError):
-            self.mod._attach_injection(view)
+            self.mod.injection.attach(view)
         self.assertEqual(view.children, {})
         self.assertTrue(attached[0].destroyed)
-        self.assertNotIn(view, self.mod._injected_views)
+        self.assertNotIn(view, self.mod.injection._injected_views)
 
 
 if __name__ == '__main__':
