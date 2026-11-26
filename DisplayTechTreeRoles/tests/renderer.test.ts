@@ -155,6 +155,21 @@ describe("injected tech-tree renderer", () => {
         }
     })
 
+    test("clears and restores icons without replacing the carrier or parent", async () => {
+        const f = fixture()
+        await Promise.resolve()
+        const role = { roleIcon: "img://icon.png", roleIconSize: 24, roleIconMargin: 0, roleIconPosition: "bottom" }
+        f.change({ "42": role })
+        expect(f.container.querySelector(".wtm-display-tech-tree-role")).not.toBeNull()
+        f.change({})
+        expect(f.container.querySelector(".wtm-display-tech-tree-role")).toBeNull()
+        f.change({ "42": role })
+        expect(f.container.querySelector(".wtm-display-tech-tree-role")).not.toBeNull()
+        expect(f.removed).toEqual([])
+        f.handlers.get("unload")!()
+        expect(f.handlers.size).toBe(0)
+    })
+
     test("removes icons and subscriptions when the carrier disappears", async () => {
         const f = fixture()
         await Promise.resolve()

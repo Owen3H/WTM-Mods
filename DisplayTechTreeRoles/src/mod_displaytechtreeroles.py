@@ -236,13 +236,13 @@ def _install_view_hooks():
     Opening adds the extra view, changes update it, and closing clears the
     mod's references to the tree.
     """
-    onloading = ('_onLoading', _make_view_loading_hook)
-    onloaded = ('_onLoaded', _make_view_loaded_hook)
-    onupdate = ('_TechTreeView__fullUpdateOfViewModel', _make_view_update_hook)
-    onfinalize = ('_finalize', _make_view_finalize_hook)
+    on_loading = ('_onLoading', _make_view_loading_hook)
+    on_loaded = ('_onLoaded', _make_view_loaded_hook)
+    on_update = ('_TechTreeView__fullUpdateOfViewModel', _make_view_update_hook)
+    on_finalize = ('_finalize', _make_view_finalize_hook)
     
     from gui.impl.lobby.tech_tree.tech_tree_view import TechTreeView
-    for name, make_hook in (onloading, onloaded, onupdate, onfinalize): 
+    for name, make_hook in (on_loading, on_loaded, on_update, on_finalize): 
         _install_hook(TechTreeView, name, make_hook)
 
 
